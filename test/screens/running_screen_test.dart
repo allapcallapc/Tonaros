@@ -14,10 +14,12 @@ import '../test_app.dart';
 void main() {
   late FakeClock clock;
   late FakeCueOutput cues;
+  late FakeBackgroundSession background;
 
   Future<void> pumpRunning(WidgetTester tester, Session session) async {
     clock = FakeClock();
     cues = FakeCueOutput();
+    background = FakeBackgroundSession();
     await tester.pumpWidget(await withAppScope(MaterialApp(
       home: Builder(
         builder: (context) => TextButton(
@@ -29,6 +31,7 @@ void main() {
                     session: session,
                     clock: () => clock.now,
                     cueOutput: cues,
+                    background: background,
                   ),
             ),
           ),
@@ -271,5 +274,67 @@ void main() {
     await tester.pump();
     expect(find.byTooltip('Turn off vibration'), findsNothing);
     expect(find.byTooltip('Mute sounds'), findsOneWidget);
+  });
+
+  testWidgets('runs a background session that follows the phases',
+      (tester) async {
+    await pumpRunning(
+        tester, sampleSession(transition: const Transition.tap()));
+    expect(background.running, isTrue);
+    expect(background.shown, ['Get ready']);
+
+    await elapse(tester, 3);
+    await tester.tap(find.bySemanticsLabel('Pause'));
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('Resume'));
+    await tester.pump();
+    for (final seconds in [5, 3, 5]) {
+      await elapse(tester, seconds);
+    }
+    expect(background.shown, [
+      'Get ready',
+      'Hold · Rep 1/2 · A',
+      'Paused · Hold · Rep 1/2 · A',
+      'Hold · Rep 1/2 · A',
+      'Rest · Rep 1/2 · A',
+      'Hold · Rep 2/2 · A',
+      'Tap to continue · Next: B',
+    ]);
+
+    await tester.tap(find.byTooltip('Stop'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('Stop').last);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(background.running, isFalse);
+  });
+
+  testWidgets('a tap rest between sets shows Continue and names the next set',
+      (tester) async {
+    await pumpRunning(
+      tester,
+      Session(id: 's', name: 'S', exercises: [
+        const HoldExercise(
+          id: 'a',
+          name: 'A',
+          sets: 2,
+          restBetweenSets: 30,
+          tapBetweenSets: true,
+          reps: 1,
+          holdSeconds: 5,
+          restBetweenReps: 0,
+        ),
+      ]),
+    );
+    await elapse(tester, 3);
+    await elapse(tester, 5);
+    expect(find.text('SET REST'), findsOneWidget);
+    expect(find.text('Tap when ready'), findsOneWidget);
+    expect(background.shown.last, 'Tap to continue · Next: Set 2/2 · A');
+
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    expect(find.text('HOLD'), findsOneWidget);
+    expect(find.text('Set 2/2'), findsOneWidget);
   });
 }
