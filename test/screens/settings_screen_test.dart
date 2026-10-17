@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tonaros/app_scope.dart';
+import 'package:tonaros/screens/sessions_screen.dart';
 import 'package:tonaros/services/update_service.dart';
 
 import '../test_app.dart';
@@ -110,5 +112,18 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('View licenses'), findsOneWidget);
+  });
+
+  testWidgets('hides the vibration switch where there is no vibrator',
+      (tester) async {
+    await pumpApp(tester);
+    final scope = AppScope.of(tester.element(find.byType(SessionsScreen)));
+    await openSettings(tester);
+    expect(find.text('Vibration'), findsOneWidget);
+
+    (scope.cues as FakeCueOutput).vibrationAvailable.value = false;
+    await tester.pump();
+    expect(find.text('Vibration'), findsNothing);
+    expect(find.text('Sounds'), findsOneWidget);
   });
 }

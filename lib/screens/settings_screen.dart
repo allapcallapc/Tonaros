@@ -40,11 +40,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final scope = AppScope.of(context);
     final settings = scope.settings;
     final updates = scope.updates;
+    final vibrationAvailable = scope.cues.vibrationAvailable;
     final textTheme = Theme.of(context).textTheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListenableBuilder(
-        listenable: Listenable.merge([settings, updates]),
+        listenable: Listenable.merge([settings, updates, vibrationAvailable]),
         builder: (context, _) => ListView(
           padding: const EdgeInsets.symmetric(vertical: 8),
           children: [
@@ -83,13 +84,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: settings.soundOn,
               onChanged: settings.setSoundOn,
             ),
-            SwitchListTile(
-              secondary: const Icon(Icons.vibration),
-              title: const Text('Vibration'),
-              subtitle: const Text('A distinct pattern for each phase'),
-              value: settings.vibrationOn,
-              onChanged: settings.setVibrationOn,
-            ),
+            // Hidden where there is no vibrator (e.g. Safari, tablets).
+            if (vibrationAvailable.value)
+              SwitchListTile(
+                secondary: const Icon(Icons.vibration),
+                title: const Text('Vibration'),
+                subtitle: const Text('A distinct pattern for each phase'),
+                value: settings.vibrationOn,
+                onChanged: settings.setVibrationOn,
+              ),
             const Divider(),
             if (UpdateService.isSupported)
               ListTile(

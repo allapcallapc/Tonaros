@@ -262,4 +262,14 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(cues.keepAwake, isFalse);
   });
+
+  testWidgets('hides the vibration toggle where there is no vibrator',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    expect(find.byTooltip('Turn off vibration'), findsOneWidget);
+    cues.vibrationAvailable.value = false;
+    await tester.pump();
+    expect(find.byTooltip('Turn off vibration'), findsNothing);
+    expect(find.byTooltip('Mute sounds'), findsOneWidget);
+  });
 }

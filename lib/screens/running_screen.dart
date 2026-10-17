@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
@@ -28,7 +29,7 @@ class RunningScreen extends StatefulWidget {
   /// Injectable for tests.
   final MonotonicClock? clock;
 
-  /// Defaults to the device's speaker, vibrator and wakelock.
+  /// Defaults to the app-wide [AppScope.cues].
   final CueOutput? cueOutput;
 
   @override
@@ -48,7 +49,8 @@ class _RunningScreenState extends State<RunningScreen>
     with WidgetsBindingObserver {
   late final SessionRunner _runner =
       SessionRunner(widget.session, clock: widget.clock);
-  late final CueOutput _cueOutput = widget.cueOutput ?? DeviceCueOutput();
+  late final CueOutput _cueOutput =
+      widget.cueOutput ?? AppScope.read(context).cues;
   late final CuePlayer _cues;
 
   @override
@@ -73,7 +75,6 @@ class _RunningScreenState extends State<RunningScreen>
     _cues.dispose();
     _runner.dispose();
     _cueOutput.setKeepAwake(false);
-    _cueOutput.dispose();
     super.dispose();
   }
 
@@ -166,7 +167,12 @@ class _RunningScreenState extends State<RunningScreen>
             icon: const Icon(Icons.close),
           ),
           title: Text(widget.session.name),
-          actions: [_CueToggles(settings: AppScope.of(context).settings)],
+          actions: [
+            _CueToggles(
+              settings: AppScope.of(context).settings,
+              vibrationAvailable: _cueOutput.vibrationAvailable,
+            ),
+          ],
         ),
         body: IgnorePointer(
           ignoring: finished,
@@ -568,14 +574,18 @@ class _SideButton extends StatelessWidget {
 
 /// Quick sound/vibration switches, same settings as the Settings screen.
 class _CueToggles extends StatelessWidget {
-  const _CueToggles({required this.settings});
+  const _CueToggles({
+    required this.settings,
+    required this.vibrationAvailable,
+  });
 
   final SettingsStore settings;
+  final ValueListenable<bool> vibrationAvailable;
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: settings,
+      listenable: Listenable.merge([settings, vibrationAvailable]),
       builder: (context, _) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -586,15 +596,16 @@ class _CueToggles extends StatelessWidget {
             icon: const Icon(Icons.volume_off),
             selectedIcon: const Icon(Icons.volume_up),
           ),
-          IconButton(
-            tooltip: settings.vibrationOn
-                ? 'Turn off vibration'
-                : 'Turn on vibration',
-            isSelected: settings.vibrationOn,
-            onPressed: () => settings.setVibrationOn(!settings.vibrationOn),
-            icon: const Icon(Icons.mobile_off),
-            selectedIcon: const Icon(Icons.vibration),
-          ),
+          if (vibrationAvailable.value)
+            IconButton(
+              tooltip: settings.vibrationOn
+                  ? 'Turn off vibration'
+                  : 'Turn on vibration',
+              isSelected: settings.vibrationOn,
+              onPressed: () => settings.setVibrationOn(!settings.vibrationOn),
+              icon: const Icon(Icons.mobile_off),
+              selectedIcon: const Icon(Icons.vibration),
+            ),
         ],
       ),
     );

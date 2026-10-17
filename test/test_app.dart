@@ -49,6 +49,7 @@ Future<SessionStore> pumpApp(
     sessions: sessions,
     settings: SettingsStore(sharedPrefs),
     updates: UpdateController(updateService ?? FakeUpdateService(null)),
+    cues: FakeCueOutput(),
   ));
   await tester.pumpAndSettle();
   return sessions;
@@ -61,6 +62,9 @@ class FakeCueOutput implements CueOutput {
   bool? keepAwake;
 
   @override
+  final ValueNotifier<bool> vibrationAvailable = ValueNotifier(true);
+
+  @override
   Future<void> play(Cue cue) async => played.add(cue);
 
   @override
@@ -68,9 +72,6 @@ class FakeCueOutput implements CueOutput {
 
   @override
   Future<void> setKeepAwake(bool on) async => keepAwake = on;
-
-  @override
-  Future<void> dispose() async {}
 }
 
 /// [child] under an [AppScope] on fresh in-memory storage.
@@ -82,6 +83,7 @@ Future<Widget> withAppScope(Widget child,
     sessions: SessionStore(sharedPrefs),
     settings: SettingsStore(sharedPrefs),
     updates: UpdateController(FakeUpdateService(null)),
+    cues: FakeCueOutput(),
     child: child,
   );
 }

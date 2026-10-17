@@ -86,4 +86,12 @@ void main() {
     expect(PhaseKind.values.map(Cue.forPhase).toSet().length,
         PhaseKind.values.length);
   });
+
+  test('vibration patterns convert to the browser convention', () async {
+    await setUpCues();
+    expect(toBrowserPattern([0, 450]), [450]);
+    expect(toBrowserPattern([0, 150, 100, 150]), [150, 100, 150]);
+    expect(toBrowserPattern([200, 100]), [0, 200, 100]);
+    expect(toBrowserPattern([]), isEmpty);
+  });
 }
