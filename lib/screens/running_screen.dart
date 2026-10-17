@@ -18,7 +18,7 @@ class RunningScreen extends StatefulWidget {
   final Session session;
 
   /// Injectable for tests.
-  final DateTime Function()? clock;
+  final MonotonicClock? clock;
 
   @override
   State<RunningScreen> createState() => _RunningScreenState();
@@ -80,15 +80,31 @@ class _RunningScreenState extends State<RunningScreen>
     }
   }
 
+  /// Guards against a second "Stop session?" dialog (double tap on the
+  /// close button, or close plus back).
+  bool _confirmingStop = false;
+
   Future<void> _confirmStop() async {
+    if (_confirmingStop || _runner.status == RunnerStatus.finished) return;
+    _confirmingStop = true;
     final wasRunning = _runner.status == RunnerStatus.running;
     _runner.pause();
-    final stop = await showConfirmDialog(
-      context,
-      title: 'Stop session?',
-      message: 'You can see what you did so far on the next screen.',
-      confirmLabel: 'Stop',
-    );
+    // pause() catches up first, which may have just ended the session.
+    if (_runner.status == RunnerStatus.finished) {
+      _confirmingStop = false;
+      return;
+    }
+    final bool stop;
+    try {
+      stop = await showConfirmDialog(
+        context,
+        title: 'Stop session?',
+        message: 'You can see what you did so far on the next screen.',
+        confirmLabel: 'Stop',
+      );
+    } finally {
+      _confirmingStop = false;
+    }
     if (!mounted) return;
     if (stop) {
       _runner.stop();
@@ -106,6 +122,8 @@ class _RunningScreenState extends State<RunningScreen>
     final isTempo = exercise is TempoExercise;
     final inExercise = phase.rep > 0;
     final exerciseCount = widget.session.exercises.length;
+    // During a transition, the exercise coming up (as on get ready).
+    final shownIndex = runner.displayExerciseIndex;
     final textTheme = Theme.of(context).textTheme;
     final colors = Theme.of(context).colorScheme;
     final showTempoLook = isTempo && inExercise;
@@ -131,12 +149,12 @@ class _RunningScreenState extends State<RunningScreen>
               children: [
                 // Exercise x/y, name, set x/y.
                 Text(
-                  'Exercise ${phase.exerciseIndex + 1}/$exerciseCount',
+                  'Exercise ${shownIndex + 1}/$exerciseCount',
                   style: textTheme.labelLarge
                       ?.copyWith(color: colors.onSurfaceVariant),
                 ),
                 Text(
-                  exercise.name,
+                  widget.session.exercises[shownIndex].name,
                   style: textTheme.headlineSmall,
                   textAlign: TextAlign.center,
                   maxLines: 2,
@@ -227,7 +245,13 @@ class _LiveTimerState extends State<_LiveTimer>
     super.initState();
     // Repaint every frame only while the clock runs: a started ticker
     // schedules a frame every vsync, paused or not.
-    _ticker = createTicker((_) => setState(() {}));
+    // Tick on every frame too, so a phase change lands on the exact frame
+    // its time runs out instead of up to 100 ms later (showing 0 and an
+    // empty ring meanwhile).
+    _ticker = createTicker((_) {
+      widget.runner.tick();
+      if (mounted) setState(() {});
+    });
     widget.runner.addListener(_syncTicker);
     _syncTicker();
   }

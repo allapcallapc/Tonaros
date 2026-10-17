@@ -186,4 +186,33 @@ void main() {
     // Last hold of A, then the transition: name B, not the transition.
     expect(find.text('Next: B'), findsOneWidget);
   });
+
+  testWidgets('a phase change lands on the frame, not the next timer tick',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    clock.advance(3);
+    // A single frame, no time for the 100 ms timer to fire.
+    await tester.pump();
+    expect(find.text('HOLD'), findsOneWidget);
+  });
+
+  testWidgets('the header shows the upcoming exercise during a transition',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await elapse(tester, 3 + 13 + 1);
+    expect(find.text('Exercise 2/2'), findsOneWidget);
+    expect(find.text('B'), findsOneWidget);
+  });
+
+  testWidgets('a double tap on stop opens one dialog', (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await tester.tap(find.byTooltip('Stop'));
+    await tester.tap(find.byTooltip('Stop'), warnIfMissed: false);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Stop session?'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Stop session?'), findsNothing);
+  });
 }

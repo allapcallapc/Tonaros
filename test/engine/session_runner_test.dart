@@ -3,10 +3,11 @@ import 'package:tonaros/engine/session_plan.dart';
 import 'package:tonaros/engine/session_runner.dart';
 import 'package:tonaros/models/session.dart';
 
+/// A controllable [MonotonicClock]: [now] is the elapsed time.
 class FakeClock {
-  DateTime now = DateTime(2026);
+  Duration now = const Duration(hours: 1);
   void advance(num seconds) =>
-      now = now.add(Duration(milliseconds: (seconds * 1000).round()));
+      now += Duration(milliseconds: (seconds * 1000).round());
 }
 
 /// Hold: 2 reps × 5 s, 3 s rest → transition → Tempo: 1 rep 2-1-2.
@@ -250,5 +251,42 @@ void main() {
     elapse(3 + 2 + 1 + 1 + 2 + 1);
     expect(runner.status, RunnerStatus.finished);
     expect(runner.repsDone, 2);
+  });
+
+  test('pause first catches up a phase whose end has passed', () {
+    setUpRunner(sampleSession());
+    runner.start();
+    // 1 s past the end of get ready, with no tick in between.
+    clock.advance(4);
+    runner.pause();
+    expect(runner.phase.kind, PhaseKind.hold1);
+    expect(runner.remaining, const Duration(seconds: 4));
+  });
+
+  test('the timer only runs while the clock does', () {
+    setUpRunner(sampleSession(transition: const Transition.tap()));
+    runner.start();
+    expect(runner.isTimerRunning, isTrue);
+    runner.pause();
+    expect(runner.isTimerRunning, isFalse);
+    runner.resume();
+    expect(runner.isTimerRunning, isTrue);
+    elapse(100); // into the wait-for-tap transition
+    expect(runner.status, RunnerStatus.waitingForTap);
+    expect(runner.isTimerRunning, isFalse);
+    runner.skipPhase();
+    expect(runner.isTimerRunning, isTrue);
+    runner.stop();
+    expect(runner.isTimerRunning, isFalse);
+  });
+
+  test('during a transition, the upcoming exercise is shown', () {
+    setUpRunner(sampleSession());
+    runner.start();
+    expect(runner.displayExerciseIndex, 0); // get ready: the first
+    elapse(3 + 13 + 1);
+    expect(runner.phase.kind, PhaseKind.transition);
+    expect(runner.phase.exerciseIndex, 0);
+    expect(runner.displayExerciseIndex, 1);
   });
 }

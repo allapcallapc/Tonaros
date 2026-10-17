@@ -35,18 +35,30 @@ class SessionFinished extends RunnerEvent {
   const SessionFinished();
 }
 
-/// Runs a session's phases against the wall clock: every phase ends at a
-/// fixed instant, so timing doesn't drift and stays right after time in
-/// the background - the next [tick] catches up through every phase that
-/// ended meanwhile.
+/// Time elapsed on a monotonic clock, from an arbitrary origin.
+typedef MonotonicClock = Duration Function();
+
+/// A [MonotonicClock] backed by a [Stopwatch]: unlike `DateTime.now`, it
+/// doesn't jump when the system time is adjusted (NTP sync, manual change).
+MonotonicClock stopwatchClock() {
+  final stopwatch = Stopwatch()..start();
+  return () => stopwatch.elapsed;
+}
+
+/// Runs a session's phases against a monotonic clock: every phase ends at a
+/// fixed instant, so timing doesn't drift and stays right after time in the
+/// background - the next [tick] catches up through every phase that ended
+/// meanwhile. (On Android the background service holds a wake lock while a
+/// session runs, so the monotonic clock keeps advancing with the screen
+/// off.)
 class SessionRunner extends ChangeNotifier {
-  SessionRunner(this.session, {DateTime Function()? clock})
+  SessionRunner(this.session, {MonotonicClock? clock})
       : plan = buildPlan(session),
-        _clock = clock ?? DateTime.now;
+        _clock = clock ?? stopwatchClock();
 
   final Session session;
   final List<Phase> plan;
-  final DateTime Function() _clock;
+  final MonotonicClock _clock;
 
   final _events = StreamController<RunnerEvent>.broadcast(sync: true);
 
@@ -64,18 +76,40 @@ class SessionRunner extends ChangeNotifier {
   Phase? get nextPhase => _index + 1 < plan.length ? plan[_index + 1] : null;
   Exercise get exercise => session.exercises[phase.exerciseIndex];
 
-  /// When the current phase ends, while running.
-  DateTime? _phaseEnd;
+  /// The exercise to show for the current phase: its own, or for a
+  /// transition between exercises, the one coming next.
+  int get displayExerciseIndex {
+    if (phase.kind != PhaseKind.transition &&
+        phase.kind != PhaseKind.waitForTap) {
+      return phase.exerciseIndex;
+    }
+    for (var i = _index + 1; i < plan.length; i++) {
+      final p = plan[i];
+      if (p.kind != PhaseKind.transition && p.kind != PhaseKind.waitForTap) {
+        return p.exerciseIndex;
+      }
+    }
+    return phase.exerciseIndex;
+  }
+
+  /// When the current phase ends on [_clock], while running.
+  Duration? _phaseEnd;
 
   /// Time left in the current phase while paused (or before start).
   Duration _remainingWhenPaused = Duration.zero;
 
-  /// Wall time spent running, pauses excluded, up to [_runningSince].
+  /// Time spent running, pauses excluded, up to [_runningSince].
   Duration _activeBefore = Duration.zero;
-  DateTime? _runningSince;
+  Duration? _runningSince;
 
   int _lastSecondsLeft = -1;
+
+  /// Fires [tick] while running; cancelled otherwise, so a paused or
+  /// tap-waiting session doesn't wake the isolate 10 times a second.
   Timer? _timer;
+
+  @visibleForTesting
+  bool get isTimerRunning => _timer?.isActive ?? false;
 
   /// True once the last phase ended on its own - not skipped past or
   /// stopped.
@@ -89,7 +123,7 @@ class SessionRunner extends ChangeNotifier {
   int repsDone = 0;
 
   Duration get remaining => switch (_status) {
-        RunnerStatus.running => _nonNegative(_phaseEnd!.difference(_clock())),
+        RunnerStatus.running => _nonNegative(_phaseEnd! - _clock()),
         RunnerStatus.paused => _remainingWhenPaused,
         _ => Duration.zero,
       };
@@ -104,31 +138,34 @@ class SessionRunner extends ChangeNotifier {
 
   Duration get activeTime =>
       _activeBefore +
-      (_runningSince == null ? Duration.zero : _clock().difference(_runningSince!));
+      (_runningSince == null ? Duration.zero : _clock() - _runningSince!);
 
   /// Starts with the get-ready phase. Subscribe to [events] before calling
   /// this: its first [PhaseStarted] is sent synchronously, from here.
   void start() {
     if (_started || plan.isEmpty) return;
     _started = true;
-    _enterPhase(0, _clock());
-    _timer = Timer.periodic(const Duration(milliseconds: 100), (_) => tick());
+    _index = 0;
+    _startPhase(_clock(), announce: true);
   }
 
   void pause() {
+    // A phase whose end has already passed advances first, rather than
+    // being frozen at 0 and losing the time since its real end.
+    tick();
     if (_status != RunnerStatus.running) return;
     _remainingWhenPaused = remaining;
     _stopActiveClock();
-    _status = RunnerStatus.paused;
+    _setStatus(RunnerStatus.paused);
     notifyListeners();
   }
 
   void resume() {
     if (_status != RunnerStatus.paused || !_started) return;
     final now = _clock();
-    _phaseEnd = now.add(_remainingWhenPaused);
+    _phaseEnd = now + _remainingWhenPaused;
     _runningSince = now;
-    _status = RunnerStatus.running;
+    _setStatus(RunnerStatus.running);
     if (_announceOnResume) {
       // Skipped while paused: announce the phase now that it runs.
       _announceOnResume = false;
@@ -167,13 +204,14 @@ class SessionRunner extends ChangeNotifier {
     _finish(announce: false);
   }
 
-  /// Advances past every phase whose end has passed. Runs on a timer, and
-  /// can be called directly (e.g. when the app returns to the foreground).
+  /// Advances past every phase whose end has passed. Runs on a timer while
+  /// running, and can be called directly (each frame by the running screen,
+  /// or when the app returns to the foreground).
   void tick() {
     if (_status != RunnerStatus.running) return;
     final now = _clock();
     var changed = 0;
-    while (_status == RunnerStatus.running && !now.isBefore(_phaseEnd!)) {
+    while (_status == RunnerStatus.running && now >= _phaseEnd!) {
       _completePhase(phase);
       final boundary = _phaseEnd!;
       if (_index + 1 >= plan.length) {
@@ -207,14 +245,13 @@ class SessionRunner extends ChangeNotifier {
     final wasPaused = _status == RunnerStatus.paused;
     _announceOnResume = false;
     _index = index;
-    final now = _clock();
     if (wasPaused) {
       // Stay paused, at the start of the new phase.
       _remainingWhenPaused = Duration(seconds: phase.seconds);
       _lastSecondsLeft = secondsLeft;
       if (phase.waitsForTap) {
         // Nothing to resume: wait for the tap straight away.
-        _status = RunnerStatus.waitingForTap;
+        _setStatus(RunnerStatus.waitingForTap);
         _events.add(PhaseStarted(phase, skipped: skipped));
       } else {
         // No cue while paused; resume() announces the phase.
@@ -222,24 +259,20 @@ class SessionRunner extends ChangeNotifier {
       }
       notifyListeners();
     } else {
-      _startPhase(now, announce: true, skipped: skipped);
+      _startPhase(_clock(), announce: true, skipped: skipped);
     }
   }
 
-  void _enterPhase(int index, DateTime now) {
-    _index = index;
-    _startPhase(now, announce: true);
-  }
-
-  void _startPhase(DateTime start, {required bool announce, bool skipped = false}) {
+  void _startPhase(Duration start,
+      {required bool announce, bool skipped = false}) {
     if (phase.waitsForTap) {
       _stopActiveClock(start);
-      _status = RunnerStatus.waitingForTap;
+      _setStatus(RunnerStatus.waitingForTap);
       _phaseEnd = null;
     } else {
       _runningSince ??= start;
-      _status = RunnerStatus.running;
-      _phaseEnd = start.add(Duration(seconds: phase.seconds));
+      _phaseEnd = start + Duration(seconds: phase.seconds);
+      _setStatus(RunnerStatus.running);
     }
     if (announce) {
       _lastSecondsLeft = secondsLeft;
@@ -248,22 +281,34 @@ class SessionRunner extends ChangeNotifier {
     }
   }
 
+  /// Every status change goes through here, so the timer only runs while
+  /// the clock does.
+  void _setStatus(RunnerStatus status) {
+    _status = status;
+    if (status == RunnerStatus.running) {
+      _timer ??= Timer.periodic(
+          const Duration(milliseconds: 100), (_) => tick());
+    } else {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
+
   void _completePhase(Phase p) {
     if (p.isHold) holdsDone++;
     if (p.endsRep) repsDone++;
   }
 
-  void _stopActiveClock([DateTime? at]) {
+  void _stopActiveClock([Duration? at]) {
     if (_runningSince != null) {
-      _activeBefore += (at ?? _clock()).difference(_runningSince!);
+      _activeBefore += (at ?? _clock()) - _runningSince!;
       _runningSince = null;
     }
   }
 
-  void _finish({required bool announce, DateTime? at}) {
+  void _finish({required bool announce, Duration? at}) {
     _stopActiveClock(at);
-    _timer?.cancel();
-    _status = RunnerStatus.finished;
+    _setStatus(RunnerStatus.finished);
     if (announce) _events.add(const SessionFinished());
     notifyListeners();
   }

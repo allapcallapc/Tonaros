@@ -9,7 +9,7 @@ import '../theme/phase_colors.dart';
 /// the hold, falling for the return, each segment as wide as its share of
 /// the rep's time. Segments fill in their phase color as the rep goes on,
 /// and a marker glides along the curve at [progress].
-class TempoCurve extends StatelessWidget {
+class TempoCurve extends StatefulWidget {
   const TempoCurve({
     super.key,
     required this.moveSeconds,
@@ -42,26 +42,68 @@ class TempoCurve extends StatelessWidget {
   }
 
   @override
+  State<TempoCurve> createState() => _TempoCurveState();
+}
+
+class _TempoCurveState extends State<TempoCurve> {
+  /// Laid-out labels, reused across frames - the curve repaints every
+  /// frame, but its labels only change with the highlighted segment.
+  final _labels = _LabelPainters();
+
+  @override
+  void dispose() {
+    _labels.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final w = widget;
     return Semantics(
-      label:
-          'Tempo: move $moveSeconds s, hold $holdSeconds s, '
-          'return $returnSeconds s',
+      label: 'Tempo: move ${w.moveSeconds} s, hold ${w.holdSeconds} s, '
+          'return ${w.returnSeconds} s',
       child: CustomPaint(
         size: Size.infinite,
         painter: _TempoCurvePainter(
-          seconds: [moveSeconds, holdSeconds, returnSeconds],
-          progress: progress.clamp(0.0, 1.0),
+          seconds: [w.moveSeconds, w.holdSeconds, w.returnSeconds],
+          progress: w.progress.clamp(0.0, 1.0),
           labelStyle: theme.textTheme.labelLarge!.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
           baselineColor: theme.colorScheme.outlineVariant,
           markerFill: theme.colorScheme.surface,
+          labels: _labels,
         ),
       ),
     );
+  }
+}
+
+/// [TextPainter]s keyed by text and style, laid out once and disposed with
+/// the curve.
+class _LabelPainters {
+  final _cache = <(String, TextStyle), TextPainter>{};
+
+  TextPainter get(String text, TextStyle style) {
+    // Only a handful of labels exist (3 segments × 2 colors); a theme
+    // change starts over rather than growing the cache.
+    if (_cache.length > 12) dispose();
+    return _cache.putIfAbsent(
+      (text, style),
+      () => TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: TextDirection.ltr,
+      )..layout(),
+    );
+  }
+
+  void dispose() {
+    for (final p in _cache.values) {
+      p.dispose();
+    }
+    _cache.clear();
   }
 }
 
@@ -72,6 +114,7 @@ class _TempoCurvePainter extends CustomPainter {
     required this.labelStyle,
     required this.baselineColor,
     required this.markerFill,
+    required this.labels,
   });
 
   /// Move, hold, return.
@@ -80,6 +123,7 @@ class _TempoCurvePainter extends CustomPainter {
   final TextStyle labelStyle;
   final Color baselineColor;
   final Color markerFill;
+  final _LabelPainters labels;
 
   static const _colors = [
     PhaseColors.move,
@@ -165,15 +209,12 @@ class _TempoCurvePainter extends CustomPainter {
     for (var i = 0; i < 3; i++) {
       if (seconds[i] == 0) continue;
       final mid = Offset.lerp(points[i], points[i + 1], 0.5)!;
-      final painter = TextPainter(
-        text: TextSpan(
-          text: '${_labels[i]} ${seconds[i]}s',
-          style: labelStyle.copyWith(
-            color: i == markerSegment && progress > 0 ? _colors[i] : null,
-          ),
+      final painter = labels.get(
+        '${_labels[i]} ${seconds[i]}s',
+        labelStyle.copyWith(
+          color: i == markerSegment && progress > 0 ? _colors[i] : null,
         ),
-        textDirection: TextDirection.ltr,
-      )..layout();
+      );
       final y = i == 1
           ? top - markerRadius - painter.height - 2
           : bottom + markerRadius + 2;

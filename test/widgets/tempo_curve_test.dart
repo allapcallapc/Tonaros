@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tonaros/widgets/tempo_curve.dart';
 
@@ -20,5 +21,27 @@ void main() {
   test('a 0 s hold takes no time', () {
     expect(at(0, 1, hold: 0), closeTo(3 / 5, 1e-9));
     expect(at(2, 0, hold: 0), closeTo(3 / 5, 1e-9));
+  });
+
+  testWidgets('paints without leaking label painters', (tester) async {
+    Widget curve(double progress) => Directionality(
+          textDirection: TextDirection.ltr,
+          child: MediaQuery(
+            data: const MediaQueryData(),
+            child: Theme(
+              data: ThemeData(),
+              child: TempoCurve(
+                moveSeconds: 3,
+                holdSeconds: 1,
+                returnSeconds: 2,
+                progress: progress,
+              ),
+            ),
+          ),
+        );
+    for (final p in [0.0, 0.2, 0.6, 0.9]) {
+      await tester.pumpWidget(curve(p));
+    }
+    await tester.pumpWidget(const SizedBox());
   });
 }
