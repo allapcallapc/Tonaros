@@ -1,0 +1,42 @@
+name: Release Please
+
+# Maintains a "Release PR" that accumulates a changelog from Conventional
+# Commits merged to main; merging that PR is the only manual step. It
+# creates the release as a draft (draft: true in
+# release-please-config.json) rather than publishing it immediately -
+# GitHub's immutable-releases feature blocks adding assets to a release
+# once published, so release-apk.yml (called below) builds the APK,
+# attaches it to the still-draft release, and publishes it itself, all in
+# one continuous run - there's never a window where the release exists
+# published but assetless.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  release-apk:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    uses: ./.github/workflows/release-apk.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+      generate_release_notes: false
+    secrets: inherit

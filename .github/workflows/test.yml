@@ -1,0 +1,46 @@
+name: Test
+
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+    branches: [ '**' ]
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Run analysis
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Generate app icons
+        uses: ./.github/actions/generate-app-icons
+        with:
+          platform: android
+
+      # Catches Gradle/manifest/Kotlin breakage on every push, not only
+      # when a release is cut.
+      - name: Build debug APK
+        run: flutter build apk --debug --target-platform android-arm64

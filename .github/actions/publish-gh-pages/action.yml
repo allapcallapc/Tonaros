@@ -1,0 +1,91 @@
+name: 'Publish to gh-pages'
+description: >-
+  Copies a build into one folder of the gh-pages branch (or removes that
+  folder) and pushes, retrying on a fresh clone if another deploy pushed in
+  the meantime. Production (root), /main/ and /pr-<n>/ deploys each only
+  touch their own files, so a retry never conflicts - which is what lets
+  those workflows use separate concurrency groups instead of one shared
+  group (a shared group silently cancels pending runs: GitHub keeps only
+  the newest pending run per group, even with cancel-in-progress: false).
+inputs:
+  source_dir:
+    description: >-
+      Directory (relative to the workspace) whose contents to publish. Leave
+      empty to remove destination_dir instead.
+    required: false
+    default: ''
+  destination_dir:
+    description: >-
+      Folder on gh-pages to publish into, e.g. "main" or "pr-12". Empty
+      means the root: files are copied over without deleting anything, so
+      the /main/ and /pr-<n>/ folders survive. A non-empty folder is
+      replaced wholesale, so files dropped from the build don't linger.
+    required: false
+    default: ''
+  commit_message:
+    description: 'Commit message for the gh-pages commit'
+    required: true
+  token:
+    description: 'Token with contents: write on this repository'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      env:
+        SOURCE_DIR: ${{ inputs.source_dir }}
+        DESTINATION_DIR: ${{ inputs.destination_dir }}
+        COMMIT_MESSAGE: ${{ inputs.commit_message }}
+        TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        REMOTE="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        if [ -n "$SOURCE_DIR" ]; then
+          SRC="$(cd "$GITHUB_WORKSPACE/$SOURCE_DIR" && pwd)"
+        fi
+
+        for attempt in 1 2 3 4 5; do
+          WORK="$(mktemp -d)"
+          if git ls-remote --exit-code --heads "$REMOTE" gh-pages >/dev/null; then
+            git clone --quiet --depth 1 --branch gh-pages "$REMOTE" "$WORK"
+          else
+            git init --quiet "$WORK"
+            git -C "$WORK" checkout --quiet --orphan gh-pages
+            git -C "$WORK" remote add origin "$REMOTE"
+          fi
+          cd "$WORK"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+          if [ -z "$SOURCE_DIR" ]; then
+            if [ -z "$DESTINATION_DIR" ] || [ ! -e "$DESTINATION_DIR" ]; then
+              echo "Nothing to remove at '${DESTINATION_DIR:-<root>}'."
+              exit 0
+            fi
+            git rm -r --quiet "$DESTINATION_DIR"
+          elif [ -z "$DESTINATION_DIR" ]; then
+            cp -a "$SRC/." .
+          else
+            rm -rf "$DESTINATION_DIR"
+            mkdir -p "$DESTINATION_DIR"
+            cp -a "$SRC/." "$DESTINATION_DIR/"
+          fi
+          # Serve files as-is (e.g. Flutter's assets/ dirs) without Jekyll.
+          touch .nojekyll
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to publish."
+            exit 0
+          fi
+          git commit --quiet -m "$COMMIT_MESSAGE"
+          if git push --quiet origin gh-pages; then
+            exit 0
+          fi
+          echo "Push rejected (attempt $attempt) - another deploy got in first, retrying on a fresh clone."
+          cd "$GITHUB_WORKSPACE"
+          rm -rf "$WORK"
+          sleep $((attempt * 3))
+        done
+        echo "Giving up after 5 attempts." >&2
+        exit 1

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tonaros-web-build",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--yes", "http-server", "build/web", "-p", "8081", "-c-1"],
+      "port": 8081
+    }
+  ]
+}

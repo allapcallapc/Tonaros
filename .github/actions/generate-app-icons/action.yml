@@ -1,0 +1,44 @@
+name: 'Generate app icons'
+description: >-
+  Regenerates launcher/PWA icons from assets/logo.png via
+  flutter_launcher_icons. Those generated files are gitignored rather than
+  committed, so every workflow that builds the app - or an Android debug
+  build - needs this step after `flutter pub get` and before
+  the build step, or Android builds fail with a missing mipmap/ic_launcher
+  resource.
+inputs:
+  platform:
+    description: >-
+      Which platform's icons to generate: "android", "web", or "all" (both).
+      Scope this to what the calling workflow's build step actually uses -
+      generating the other platform's icons too just burns CI time on image
+      work the build never touches. Implemented by deleting the unwanted
+      platform's section from a throwaway copy of pubspec.yaml (via yq, part
+      of the standard GitHub-hosted runner image) rather than duplicating
+      config values here, so e.g. the web background/theme color stays
+      single-sourced from pubspec.yaml. Values other than "android"/"web"
+      fall back to the full config in pubspec.yaml (both platforms).
+    required: false
+    default: 'all'
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      env:
+        PLATFORM: ${{ inputs.platform }}
+      run: |
+        case "$PLATFORM" in
+          android)
+            cp pubspec.yaml /tmp/flutter_launcher_icons.yaml
+            yq eval -i 'del(.flutter_launcher_icons.web)' /tmp/flutter_launcher_icons.yaml
+            dart run flutter_launcher_icons -f /tmp/flutter_launcher_icons.yaml
+            ;;
+          web)
+            cp pubspec.yaml /tmp/flutter_launcher_icons.yaml
+            yq eval -i 'del(.flutter_launcher_icons.android) | del(.flutter_launcher_icons.min_sdk_android)' /tmp/flutter_launcher_icons.yaml
+            dart run flutter_launcher_icons -f /tmp/flutter_launcher_icons.yaml
+            ;;
+          *)
+            dart run flutter_launcher_icons
+            ;;
+        esac

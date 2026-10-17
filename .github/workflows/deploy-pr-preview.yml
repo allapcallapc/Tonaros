@@ -1,0 +1,94 @@
+name: Deploy PR preview
+
+# Builds a live preview of each PR at /pr-<number>/ on gh-pages, so it can
+# be reviewed from a URL without checking anything out locally. The preview
+# gets its own GitHub Environment so a "View deployment" link shows up
+# directly on the PR. The folder (and preview link) is removed when the
+# PR closes.
+#
+# Runs on pull_request, not pull_request_target, so it only has write
+# access to gh-pages for PRs from this repo - PRs from forks won't get a
+# live preview (their workflow run gets a read-only token).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+
+# One group per PR: a new push (or closing the PR) supersedes that PR's
+# in-flight preview, without touching other PRs or the main/production
+# deploys - see deploy.yml.
+concurrency:
+  group: deploy-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment:
+      name: pr-${{ github.event.pull_request.number }}
+      url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-${{ github.event.pull_request.number }}/
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Generate app icons
+        uses: ./.github/actions/generate-app-icons
+        with:
+          platform: web
+
+      - name: Determine preview version
+        id: version
+        run: |
+          BASE_VERSION=$(jq -r '.["."]' .release-please-manifest.json)
+          SHORT_SHA=$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-7)
+          echo "name=${BASE_VERSION}-pr${{ github.event.pull_request.number }}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build web app
+        # env/staging.json sets APP_ENV=staging, which shows a "STAGING"
+        # corner banner - see env/README.md.
+        run: |
+          flutter build web --base-href "/${{ github.event.repository.name }}/pr-${{ github.event.pull_request.number }}/" \
+            --build-name=${{ steps.version.outputs.name }} --build-number=0 \
+            --dart-define-from-file=env/staging.json
+
+      - name: Deploy to gh-pages
+        uses: ./.github/actions/publish-gh-pages
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          source_dir: build/web
+          destination_dir: pr-${{ github.event.pull_request.number }}
+          commit_message: 'deploy: preview for PR #${{ github.event.pull_request.number }}'
+
+  cleanup:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Only needed for the local publish-gh-pages action - taken from the
+      # default branch, since a closed PR's merge ref may no longer exist.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Remove preview folder
+        uses: ./.github/actions/publish-gh-pages
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          destination_dir: pr-${{ github.event.pull_request.number }}
+          commit_message: 'deploy: remove preview for PR #${{ github.event.pull_request.number }}'
