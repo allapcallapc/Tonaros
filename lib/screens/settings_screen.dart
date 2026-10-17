@@ -76,6 +76,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const Divider(),
+            SwitchListTile(
+              secondary: const Icon(Icons.volume_up_outlined),
+              title: const Text('Sounds'),
+              subtitle: const Text('A distinct sound for each phase'),
+              value: settings.soundOn,
+              onChanged: settings.setSoundOn,
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.vibration),
+              title: const Text('Vibration'),
+              subtitle: const Text('A distinct pattern for each phase'),
+              value: settings.vibrationOn,
+              onChanged: settings.setVibrationOn,
+            ),
+            const Divider(),
             if (UpdateService.isSupported)
               ListTile(
                 leading: const Icon(Icons.system_update),

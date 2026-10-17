@@ -3,6 +3,8 @@
     <!-- Lets the user install the update APK downloaded from GitHub Releases
          in-app instead of going through the Play Store. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- Per-phase vibration cues while a session runs. -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
     <application
         android:label="Tonaros"
         android:name="${applicationName}"

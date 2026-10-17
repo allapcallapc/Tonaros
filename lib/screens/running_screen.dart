@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../app_scope.dart';
 import '../engine/session_plan.dart';
 import '../engine/session_runner.dart';
 import '../models/session.dart';
+import '../services/cues.dart';
+import '../services/settings_store.dart';
 import '../theme/phase_colors.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/phase_ring.dart';
@@ -13,12 +16,20 @@ import 'summary_screen.dart';
 
 /// Runs a session: 3 s get ready, then every exercise and transition.
 class RunningScreen extends StatefulWidget {
-  const RunningScreen({super.key, required this.session, this.clock});
+  const RunningScreen({
+    super.key,
+    required this.session,
+    this.clock,
+    this.cueOutput,
+  });
 
   final Session session;
 
   /// Injectable for tests.
   final MonotonicClock? clock;
+
+  /// Defaults to the device's speaker, vibrator and wakelock.
+  final CueOutput? cueOutput;
 
   @override
   State<RunningScreen> createState() => _RunningScreenState();
@@ -37,12 +48,21 @@ class _RunningScreenState extends State<RunningScreen>
     with WidgetsBindingObserver {
   late final SessionRunner _runner =
       SessionRunner(widget.session, clock: widget.clock);
+  late final CueOutput _cueOutput = widget.cueOutput ?? DeviceCueOutput();
+  late final CuePlayer _cues;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _runner.addListener(_onRunnerChanged);
+    // Listen before starting, so "get ready" gets its cue too.
+    _cues = CuePlayer(
+      events: _runner.events,
+      settings: AppScope.read(context).settings,
+      output: _cueOutput,
+    );
+    _cueOutput.setKeepAwake(true);
     _runner.start();
   }
 
@@ -50,7 +70,10 @@ class _RunningScreenState extends State<RunningScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _runner.removeListener(_onRunnerChanged);
+    _cues.dispose();
     _runner.dispose();
+    _cueOutput.setKeepAwake(false);
+    _cueOutput.dispose();
     super.dispose();
   }
 
@@ -143,6 +166,7 @@ class _RunningScreenState extends State<RunningScreen>
             icon: const Icon(Icons.close),
           ),
           title: Text(widget.session.name),
+          actions: [_CueToggles(settings: AppScope.of(context).settings)],
         ),
         body: IgnorePointer(
           ignoring: finished,
@@ -538,6 +562,41 @@ class _SideButton extends StatelessWidget {
         const SizedBox(height: 4),
         Text(label, style: Theme.of(context).textTheme.labelMedium),
       ],
+    );
+  }
+}
+
+/// Quick sound/vibration switches, same settings as the Settings screen.
+class _CueToggles extends StatelessWidget {
+  const _CueToggles({required this.settings});
+
+  final SettingsStore settings;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: settings,
+      builder: (context, _) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: settings.soundOn ? 'Mute sounds' : 'Unmute sounds',
+            isSelected: settings.soundOn,
+            onPressed: () => settings.setSoundOn(!settings.soundOn),
+            icon: const Icon(Icons.volume_off),
+            selectedIcon: const Icon(Icons.volume_up),
+          ),
+          IconButton(
+            tooltip: settings.vibrationOn
+                ? 'Turn off vibration'
+                : 'Turn on vibration',
+            isSelected: settings.vibrationOn,
+            onPressed: () => settings.setVibrationOn(!settings.vibrationOn),
+            icon: const Icon(Icons.mobile_off),
+            selectedIcon: const Icon(Icons.vibration),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -4,30 +4,38 @@ import 'package:tonaros/models/session.dart';
 import 'package:tonaros/screens/running_screen.dart';
 import 'package:tonaros/screens/summary_screen.dart';
 import 'package:tonaros/widgets/phase_ring.dart';
+import 'package:tonaros/services/cues.dart';
 import 'package:tonaros/widgets/rep_dots.dart';
 import 'package:tonaros/widgets/tempo_curve.dart';
 
 import '../engine/session_runner_test.dart' show FakeClock, sampleSession;
+import '../test_app.dart';
 
 void main() {
   late FakeClock clock;
+  late FakeCueOutput cues;
 
   Future<void> pumpRunning(WidgetTester tester, Session session) async {
     clock = FakeClock();
-    await tester.pumpWidget(MaterialApp(
+    cues = FakeCueOutput();
+    await tester.pumpWidget(await withAppScope(MaterialApp(
       home: Builder(
         builder: (context) => TextButton(
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) =>
-                  RunningScreen(session: session, clock: () => clock.now),
+                  RunningScreen(
+                    session: session,
+                    clock: () => clock.now,
+                    cueOutput: cues,
+                  ),
             ),
           ),
           child: const Text('go'),
         ),
       ),
-    ));
+    )));
     await tester.tap(find.text('go'));
     // Not pumpAndSettle: the ring repaints every frame while running.
     await tester.pump();
@@ -228,5 +236,30 @@ void main() {
     expect(find.text('Exercise 2/2'), findsOneWidget);
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('Session complete'), findsOneWidget);
+  });
+
+  testWidgets('keeps the screen awake and cues phases; toggles mute',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    expect(cues.keepAwake, isTrue);
+    expect(cues.played, [Cue.getReady]);
+
+    await elapse(tester, 3);
+    expect(cues.played.last, Cue.hold1);
+
+    await tester.tap(find.byTooltip('Mute sounds'));
+    await tester.pump();
+    await elapse(tester, 5);
+    // Muted: the rest started with a vibration but no sound.
+    expect(cues.played.last, isNot(Cue.rest));
+    expect(cues.vibrated.last, Cue.rest);
+    expect(find.byTooltip('Unmute sounds'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Stop'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('Stop').last);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(cues.keepAwake, isFalse);
   });
 }

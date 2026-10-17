@@ -24,6 +24,13 @@ class AppScope extends InheritedWidget {
     return scope!;
   }
 
+  /// Like [of], without subscribing to changes - usable from initState.
+  static AppScope read(BuildContext context) {
+    final scope = context.getInheritedWidgetOfExactType<AppScope>();
+    assert(scope != null, 'No AppScope above this context');
+    return scope!;
+  }
+
   @override
   bool updateShouldNotify(AppScope oldWidget) =>
       sessions != oldWidget.sessions ||
