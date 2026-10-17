@@ -34,6 +34,7 @@ class Phase {
     this.rep = 0,
     this.repsDone = 0,
     this.waitsForTap = false,
+    this.endsRep = false,
   });
 
   final PhaseKind kind;
@@ -57,6 +58,9 @@ class Phase {
   /// No countdown: runs until the user taps to continue (a "wait until
   /// tap" transition, or a tap rest between sets).
   final bool waitsForTap;
+
+  /// Completing this phase completes a rep (its last hold or return).
+  final bool endsRep;
 
   bool get isHold =>
       kind == PhaseKind.hold1 ||
@@ -106,7 +110,7 @@ List<Phase> buildPlan(Session session) {
 List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
   final phases = <Phase>[];
   void add(PhaseKind kind, String label, int seconds, int set, int rep,
-      double repsDone) {
+      double repsDone, {bool endsRep = false}) {
     if (seconds <= 0) return;
     phases.add(Phase(
       kind: kind,
@@ -116,6 +120,7 @@ List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
       set: set,
       rep: rep,
       repsDone: repsDone,
+      endsRep: endsRep,
     ));
   }
 
@@ -131,9 +136,10 @@ List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
             add(PhaseKind.rest, 'Rest', e.restBetweenReps, set, rep,
                 before + 0.5);
             add(PhaseKind.hold2, e.secondHoldName, e.secondHoldSeconds, set,
-                rep, before + 0.5);
+                rep, before + 0.5, endsRep: true);
           } else {
-            add(PhaseKind.hold1, 'Hold', e.holdSeconds, set, rep, before);
+            add(PhaseKind.hold1, 'Hold', e.holdSeconds, set, rep, before,
+                endsRep: true);
           }
           // The last rep's rest is replaced by the rest between sets.
           if (!lastRep) {
@@ -143,7 +149,8 @@ List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
         case TempoExercise e:
           add(PhaseKind.move, 'Move', e.moveSeconds, set, rep, before);
           add(PhaseKind.tempoHold, 'Hold', e.holdSeconds, set, rep, before);
-          add(PhaseKind.back, 'Back', e.returnSeconds, set, rep, before);
+          add(PhaseKind.back, 'Back', e.returnSeconds, set, rep, before,
+              endsRep: true);
       }
     }
     if (set < exercise.sets) {

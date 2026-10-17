@@ -103,6 +103,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
             itemBuilder: (context, i) => _SessionCard(
               session: sessions[i],
               onTap: () => _open(sessions[i]),
+              onStart: () => startSession(context, sessions[i]),
               onRename: () => _rename(sessions[i]),
               onDuplicate: () => store.duplicate(sessions[i]),
               onDelete: () => _delete(sessions[i]),
@@ -148,6 +149,7 @@ class _SessionCard extends StatelessWidget {
   const _SessionCard({
     required this.session,
     required this.onTap,
+    required this.onStart,
     required this.onRename,
     required this.onDuplicate,
     required this.onDelete,
@@ -155,6 +157,7 @@ class _SessionCard extends StatelessWidget {
 
   final Session session;
   final VoidCallback onTap;
+  final VoidCallback onStart;
   final VoidCallback onRename;
   final VoidCallback onDuplicate;
   final VoidCallback onDelete;
@@ -165,7 +168,7 @@ class _SessionCard extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       child: ListTile(
-        contentPadding: const EdgeInsets.only(left: 16, right: 4),
+        contentPadding: const EdgeInsets.only(left: 12, right: 4),
         minVerticalPadding: 14,
         title: Text(session.name),
         subtitle: Text(count == 0
@@ -173,6 +176,15 @@ class _SessionCard extends StatelessWidget {
             : '${count == 1 ? '1 exercise' : '$count exercises'} · '
                 '${sessionDurationLabel(session)}'),
         onTap: onTap,
+        leading: IconButton.filled(
+          tooltip: 'Start',
+          iconSize: 32,
+          style: IconButton.styleFrom(minimumSize: const Size(52, 52)),
+          onPressed: count == 0 ? null : onStart,
+          // Explicit color: ListTile's leading icon theme would win otherwise.
+          icon: Icon(Icons.play_arrow,
+              color: count == 0 ? null : Theme.of(context).colorScheme.onPrimary),
+        ),
         trailing: PopupMenuButton<_SessionAction>(
           tooltip: 'More',
           onSelected: (a) => switch (a) {
