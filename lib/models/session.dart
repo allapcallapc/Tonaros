@@ -4,7 +4,9 @@ import 'dart:math';
 String newId() {
   final random = Random();
   return DateTime.now().microsecondsSinceEpoch.toRadixString(36) +
-      random.nextInt(1 << 32).toRadixString(36);
+      // Not `1 << 32`: on the web ints are JS numbers, shifts are 32-bit and
+      // that folds to 0, which nextInt rejects.
+      random.nextInt(0x7fffffff).toRadixString(36);
 }
 
 enum TransitionKind { countdown, tap }
