@@ -21,7 +21,17 @@ class RepDots extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final size = reps <= 12 ? 20.0 : (reps <= 20 ? 16.0 : 12.0);
+    return LayoutBuilder(builder: (context, constraints) {
+      // As big as fits on one row (each dot plus half a dot of spacing),
+      // between 10 and 20 px; only very high rep counts wrap.
+      final size = constraints.maxWidth.isFinite
+          ? (constraints.maxWidth / (reps * 1.5)).clamp(10.0, 20.0)
+          : 20.0;
+      return _dots(size);
+    });
+  }
+
+  Widget _dots(double size) {
     final full = repsDone.floor();
     final current = full + 1;
     return Wrap(

@@ -8,6 +8,7 @@ import '../theme/phase_colors.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/phase_ring.dart';
 import '../widgets/rep_dots.dart';
+import '../widgets/tempo_curve.dart';
 import 'summary_screen.dart';
 
 /// Runs a session: 3 s get ready, then every exercise and transition.
@@ -165,7 +166,7 @@ class _RunningScreenState extends State<RunningScreen>
                             onTap: runner.status == RunnerStatus.waitingForTap
                                 ? runner.skipPhase
                                 : null,
-                            child: Center(child: _LiveRing(runner: runner)),
+                            child: Center(child: _LiveTimer(runner: runner)),
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -199,18 +200,18 @@ class _RunningScreenState extends State<RunningScreen>
   }
 }
 
-/// The ring and its center, repainted every frame while running so it
-/// drains smoothly.
-class _LiveRing extends StatefulWidget {
-  const _LiveRing({required this.runner});
+/// The ring (or, for Tempo reps, the tempo curve) and the countdown,
+/// repainted every frame while running so it moves smoothly.
+class _LiveTimer extends StatefulWidget {
+  const _LiveTimer({required this.runner});
 
   final SessionRunner runner;
 
   @override
-  State<_LiveRing> createState() => _LiveRingState();
+  State<_LiveTimer> createState() => _LiveTimerState();
 }
 
-class _LiveRingState extends State<_LiveRing>
+class _LiveTimerState extends State<_LiveTimer>
     with SingleTickerProviderStateMixin {
   late final Ticker _ticker;
 
@@ -247,51 +248,85 @@ class _LiveRingState extends State<_LiveRing>
       _ => 'Rep ${phase.rep}/${exercise.reps}',
     };
 
+    final center = FittedBox(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            phase.label.toUpperCase(),
+            style: textTheme.titleLarge?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
+          ),
+          if (waiting)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Icon(Icons.touch_app, size: 96, color: color),
+            )
+          else
+            Text(
+              '${runner.secondsLeft}',
+              style: textTheme.displayLarge?.copyWith(
+                fontSize: 112,
+                fontWeight: FontWeight.w600,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                height: 1.1,
+                color: runner.paused
+                    ? textTheme.displayLarge?.color?.withValues(alpha: 0.4)
+                    : null,
+              ),
+            ),
+          if (footer != null) Text(footer, style: textTheme.titleLarge),
+          if (runner.paused)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'PAUSED',
+                style: textTheme.labelLarge?.copyWith(letterSpacing: 2),
+              ),
+            ),
+        ],
+      ),
+    );
+
+    // Tempo reps: the movement curve with the countdown below it.
+    if (exercise is TempoExercise && phase.rep > 0) {
+      final segment = switch (phase.kind) {
+        PhaseKind.move => 0,
+        PhaseKind.tempoHold => 1,
+        PhaseKind.back => 2,
+        _ => null, // rest between sets: back at the start
+      };
+      return Column(
+        children: [
+          Expanded(
+            flex: 5,
+            child: TempoCurve(
+              moveSeconds: exercise.moveSeconds,
+              holdSeconds: exercise.holdSeconds,
+              returnSeconds: exercise.returnSeconds,
+              progress: segment == null
+                  ? 0
+                  : TempoCurve.progressAt(
+                      segment: segment,
+                      fractionDone: 1 - runner.fractionLeft,
+                      moveSeconds: exercise.moveSeconds,
+                      holdSeconds: exercise.holdSeconds,
+                      returnSeconds: exercise.returnSeconds,
+                    ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(flex: 4, child: center),
+        ],
+      );
+    }
     return PhaseRing(
       fractionLeft: waiting ? 1 : runner.fractionLeft,
       color: color,
-      child: FittedBox(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              phase.label.toUpperCase(),
-              style: textTheme.titleLarge?.copyWith(
-                color: color,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.2,
-              ),
-            ),
-            if (waiting)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Icon(Icons.touch_app, size: 96, color: color),
-              )
-            else
-              Text(
-                '${runner.secondsLeft}',
-                style: textTheme.displayLarge?.copyWith(
-                  fontSize: 112,
-                  fontWeight: FontWeight.w600,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  height: 1.1,
-                  color: runner.paused
-                      ? textTheme.displayLarge?.color?.withValues(alpha: 0.4)
-                      : null,
-                ),
-              ),
-            if (footer != null) Text(footer, style: textTheme.titleLarge),
-            if (runner.paused)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  'PAUSED',
-                  style: textTheme.labelLarge?.copyWith(letterSpacing: 2),
-                ),
-              ),
-          ],
-        ),
-      ),
+      child: center,
     );
   }
 }

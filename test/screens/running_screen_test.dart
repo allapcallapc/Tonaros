@@ -3,7 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tonaros/models/session.dart';
 import 'package:tonaros/screens/running_screen.dart';
 import 'package:tonaros/screens/summary_screen.dart';
+import 'package:tonaros/widgets/phase_ring.dart';
 import 'package:tonaros/widgets/rep_dots.dart';
+import 'package:tonaros/widgets/tempo_curve.dart';
 
 import '../engine/session_runner_test.dart' show FakeClock, sampleSession;
 
@@ -108,5 +110,27 @@ void main() {
           of: find.byType(SummaryScreen), matching: find.text('1')),
       findsNWidgets(2), // 1 rep, 1 hold
     );
+  });
+
+  testWidgets('tempo reps show the tempo curve instead of the ring',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await elapse(tester, 3);
+    expect(find.byType(PhaseRing), findsOneWidget);
+    expect(find.byType(TempoCurve), findsNothing);
+
+    await tester.tap(find.byTooltip('Skip exercise'));
+    await tester.pump();
+    expect(find.text('MOVE'), findsOneWidget);
+    expect(find.byType(TempoCurve), findsOneWidget);
+    expect(find.byType(PhaseRing), findsNothing);
+    final curve = tester.widget<TempoCurve>(find.byType(TempoCurve));
+    expect((curve.moveSeconds, curve.holdSeconds, curve.returnSeconds),
+        (2, 1, 2));
+
+    // Halfway through the 2 s move = 1 s into a 5 s rep.
+    await elapse(tester, 1);
+    expect(tester.widget<TempoCurve>(find.byType(TempoCurve)).progress,
+        closeTo(0.2, 0.05));
   });
 }
