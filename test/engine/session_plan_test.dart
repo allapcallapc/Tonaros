@@ -116,4 +116,14 @@ void main() {
     expect(estimate.duration, const Duration(seconds: 3 + 3 * 5));
     expect(estimate.taps, 2);
   });
+
+  test('the last phase actually added for a rep ends it', () {
+    final phases = exercisePhases(hold(twoHolds: true, hold2: 0, reps: 1));
+    expect(describe(phases), 'hold1:5@1.1 rest:3@1.1');
+    expect(phases.map((p) => p.endsRep), [false, true]);
+    expect(
+      exercisePhases(tempo(reps: 1)).map((p) => p.endsRep),
+      [false, false, true],
+    );
+  });
 }

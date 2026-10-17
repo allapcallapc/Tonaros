@@ -8,6 +8,7 @@ import '../widgets/dialogs.dart';
 import '../widgets/exercise_summary.dart';
 import '../widgets/number_stepper.dart';
 import 'exercise_editor_screen.dart';
+import 'running_screen.dart';
 
 /// A session's exercises and the transitions between them. Every change is
 /// saved straight away.
@@ -188,6 +189,22 @@ class _SessionEditor extends StatelessWidget {
           ),
         ],
       ),
+      bottomNavigationBar: exercises.isEmpty
+          ? null
+          : SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(60),
+                    textStyle: textTheme.titleLarge,
+                  ),
+                  onPressed: () => RunningScreen.open(context, session),
+                  icon: const Icon(Icons.play_arrow, size: 32),
+                  label: const Text('Start'),
+                ),
+              ),
+            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _add(context),
         icon: const Icon(Icons.add),

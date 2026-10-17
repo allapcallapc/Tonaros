@@ -19,11 +19,11 @@ Or use the `.vscode/launch.json` configs. `.claude/launch.json` serves an alread
 
 - `lib/config/` - `AppConfig` (build-time environment, from `env/*.json`)
 - `lib/models/` - `Session`, `HoldExercise`, `TempoExercise`, `Transition` (JSON-serialisable)
-- `lib/engine/` - `buildPlan`: a session as a flat list of timed phases (also drives the duration estimate)
-- `lib/screens/` - sessions list (home), session editor, exercise editor, settings
+- `lib/engine/` - `buildPlan` (a session as a flat list of timed phases, also drives the duration estimate) and `SessionRunner` (runs the plan against a monotonic clock)
+- `lib/screens/` - sessions list (home), session editor, exercise editor, running screen, summary, settings
 - `lib/services/` - `SessionStore`/`SettingsStore` (shared preferences), `UpdateService` + `UpdateController` (Android in-app updates from GitHub Releases)
 - `lib/theme/` - per-phase colors
-- `lib/widgets/` - number stepper, dialogs, the update prompt/download dialogs
+- `lib/widgets/` - phase ring, rep dots, number stepper, dialogs, the update prompt/download dialogs
 - `assets/` - the logo, source for all generated launcher/PWA icons
 
 ## One-time GitHub setup
