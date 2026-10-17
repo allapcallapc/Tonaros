@@ -103,4 +103,17 @@ void main() {
     expect(formatDuration(const Duration(seconds: 750)), '12 min 30 s');
     expect(formatDuration(const Duration(minutes: 65)), '1 h 5 min');
   });
+
+  test('tap rest between sets waits instead of counting down', () {
+    final phases =
+        exercisePhases(hold(sets: 2, reps: 1).copyWith(tapBetweenSets: true));
+    expect(describe(phases), 'hold1:5@1.1 setRest:0@1.1 hold1:5@2.1');
+    expect(phases.map((p) => p.waitsForTap), [false, true, false]);
+
+    final estimate = estimateSession(Session(id: 's', name: 'S', exercises: [
+      hold(sets: 3, reps: 1).copyWith(tapBetweenSets: true),
+    ]));
+    expect(estimate.duration, const Duration(seconds: 3 + 3 * 5));
+    expect(estimate.taps, 2);
+  });
 }

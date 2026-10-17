@@ -17,6 +17,7 @@ void main() {
       HoldExercise.blank().copyWith(
         name: 'Plank',
         twoHolds: true,
+        tapBetweenSets: true,
         firstHoldName: 'Up',
         transition: const Transition.tap(),
       ),
@@ -28,6 +29,8 @@ void main() {
     expect(reloaded.name, 'Morning');
     final [plank as HoldExercise, squat as TempoExercise] = reloaded.exercises;
     expect(plank.twoHolds, isTrue);
+    expect(plank.tapBetweenSets, isTrue);
+    expect(squat.tapBetweenSets, isFalse);
     expect(plank.firstHoldName, 'Up');
     expect(plank.transition, const Transition.tap());
     expect(squat.name, 'Squat');

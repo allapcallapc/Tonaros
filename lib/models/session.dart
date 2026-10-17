@@ -50,6 +50,7 @@ sealed class Exercise {
     required this.name,
     required this.sets,
     required this.restBetweenSets,
+    this.tapBetweenSets = false,
     required this.transition,
   });
 
@@ -57,6 +58,10 @@ sealed class Exercise {
   final String name;
   final int sets;
   final int restBetweenSets;
+
+  /// Wait for a tap between sets instead of counting down
+  /// [restBetweenSets].
+  final bool tapBetweenSets;
 
   /// What follows this exercise in its session; ignored for the last one.
   final Transition transition;
@@ -68,6 +73,7 @@ sealed class Exercise {
     String? name,
     int? sets,
     int? restBetweenSets,
+    bool? tapBetweenSets,
     Transition? transition,
   });
 
@@ -83,6 +89,7 @@ sealed class Exercise {
         'name': name,
         'sets': sets,
         'restBetweenSets': restBetweenSets,
+        'tapBetweenSets': tapBetweenSets,
         'transition': transition.toJson(),
       };
 }
@@ -95,6 +102,7 @@ class HoldExercise extends Exercise {
     required super.name,
     required super.sets,
     required super.restBetweenSets,
+    super.tapBetweenSets,
     super.transition = Transition.defaultTransition,
     required this.reps,
     required this.holdSeconds,
@@ -134,6 +142,7 @@ class HoldExercise extends Exercise {
     String? name,
     int? sets,
     int? restBetweenSets,
+    bool? tapBetweenSets,
     Transition? transition,
     int? reps,
     int? holdSeconds,
@@ -148,6 +157,7 @@ class HoldExercise extends Exercise {
         name: name ?? this.name,
         sets: sets ?? this.sets,
         restBetweenSets: restBetweenSets ?? this.restBetweenSets,
+        tapBetweenSets: tapBetweenSets ?? this.tapBetweenSets,
         transition: transition ?? this.transition,
         reps: reps ?? this.reps,
         holdSeconds: holdSeconds ?? this.holdSeconds,
@@ -164,6 +174,7 @@ class HoldExercise extends Exercise {
     String? name,
     int? sets,
     int? restBetweenSets,
+    bool? tapBetweenSets,
     Transition? transition,
   }) =>
       copyWith(
@@ -171,6 +182,7 @@ class HoldExercise extends Exercise {
         name: name,
         sets: sets,
         restBetweenSets: restBetweenSets,
+        tapBetweenSets: tapBetweenSets,
         transition: transition,
       );
 
@@ -179,6 +191,7 @@ class HoldExercise extends Exercise {
         name: json['name'] as String,
         sets: json['sets'] as int,
         restBetweenSets: json['restBetweenSets'] as int,
+        tapBetweenSets: json['tapBetweenSets'] as bool? ?? false,
         transition: Transition.fromJson(
             json['transition'] as Map<String, dynamic>? ?? const {}),
         reps: json['reps'] as int,
@@ -211,6 +224,7 @@ class TempoExercise extends Exercise {
     required super.name,
     required super.sets,
     required super.restBetweenSets,
+    super.tapBetweenSets,
     super.transition = Transition.defaultTransition,
     required this.reps,
     required this.moveSeconds,
@@ -242,6 +256,7 @@ class TempoExercise extends Exercise {
     String? name,
     int? sets,
     int? restBetweenSets,
+    bool? tapBetweenSets,
     Transition? transition,
     int? reps,
     int? moveSeconds,
@@ -253,6 +268,7 @@ class TempoExercise extends Exercise {
         name: name ?? this.name,
         sets: sets ?? this.sets,
         restBetweenSets: restBetweenSets ?? this.restBetweenSets,
+        tapBetweenSets: tapBetweenSets ?? this.tapBetweenSets,
         transition: transition ?? this.transition,
         reps: reps ?? this.reps,
         moveSeconds: moveSeconds ?? this.moveSeconds,
@@ -266,6 +282,7 @@ class TempoExercise extends Exercise {
     String? name,
     int? sets,
     int? restBetweenSets,
+    bool? tapBetweenSets,
     Transition? transition,
   }) =>
       copyWith(
@@ -273,6 +290,7 @@ class TempoExercise extends Exercise {
         name: name,
         sets: sets,
         restBetweenSets: restBetweenSets,
+        tapBetweenSets: tapBetweenSets,
         transition: transition,
       );
 
@@ -281,6 +299,7 @@ class TempoExercise extends Exercise {
         name: json['name'] as String,
         sets: json['sets'] as int,
         restBetweenSets: json['restBetweenSets'] as int,
+        tapBetweenSets: json['tapBetweenSets'] as bool? ?? false,
         transition: Transition.fromJson(
             json['transition'] as Map<String, dynamic>? ?? const {}),
         reps: json['reps'] as int,

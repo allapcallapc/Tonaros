@@ -19,7 +19,7 @@ enum PhaseKind {
   back,
   transition,
 
-  /// A "wait until tap" transition: no countdown.
+  /// A "wait until tap" transition between exercises.
   waitForTap,
 }
 
@@ -33,12 +33,13 @@ class Phase {
     this.set = 0,
     this.rep = 0,
     this.repsDone = 0,
+    this.waitsForTap = false,
   });
 
   final PhaseKind kind;
   final String label;
 
-  /// Duration; 0 for [PhaseKind.waitForTap].
+  /// Duration; 0 when it [waitsForTap].
   final int seconds;
 
   /// Index of the exercise this phase belongs to (for transitions, the one
@@ -52,6 +53,10 @@ class Phase {
   /// Reps completed in the current set while this phase runs. Halves mark a
   /// two-hold rep whose first hold is done.
   final double repsDone;
+
+  /// No countdown: runs until the user taps to continue (a "wait until
+  /// tap" transition, or a tap rest between sets).
+  final bool waitsForTap;
 
   bool get isHold =>
       kind == PhaseKind.hold1 ||
@@ -82,6 +87,7 @@ List<Phase> buildPlan(Session session) {
           label: 'Tap when ready',
           seconds: 0,
           exerciseIndex: i,
+          waitsForTap: true,
         ));
       } else if (t.seconds > 0) {
         phases.add(Phase(
@@ -141,8 +147,21 @@ List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
       }
     }
     if (set < exercise.sets) {
-      add(PhaseKind.setRest, 'Set rest', exercise.restBetweenSets, set,
-          exercise.reps, exercise.reps.toDouble());
+      if (exercise.tapBetweenSets) {
+        phases.add(Phase(
+          kind: PhaseKind.setRest,
+          label: 'Set rest',
+          seconds: 0,
+          exerciseIndex: exerciseIndex,
+          set: set,
+          rep: exercise.reps,
+          repsDone: exercise.reps.toDouble(),
+          waitsForTap: true,
+        ));
+      } else {
+        add(PhaseKind.setRest, 'Set rest', exercise.restBetweenSets, set,
+            exercise.reps, exercise.reps.toDouble());
+      }
     }
   }
   return phases;
@@ -156,7 +175,7 @@ List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
   return (
     duration: Duration(
         seconds: plan.fold(0, (total, phase) => total + phase.seconds)),
-    taps: plan.where((p) => p.kind == PhaseKind.waitForTap).length,
+    taps: plan.where((p) => p.waitsForTap).length,
   );
 }
 

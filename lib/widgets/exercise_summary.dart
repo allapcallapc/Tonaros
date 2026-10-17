@@ -16,6 +16,9 @@ String exerciseSummary(Exercise exercise) {
     case TempoExercise e:
       parts.add('${e.moveSeconds}-${e.holdSeconds}-${e.returnSeconds} s');
   }
+  if (exercise.sets > 1 && exercise.tapBetweenSets) {
+    parts.add('tap between sets');
+  }
   return parts.join(' · ');
 }
 

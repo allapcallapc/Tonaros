@@ -58,6 +58,7 @@ class _ExerciseEditorScreenState extends State<ExerciseEditorScreen> {
     _set(to.copyWithCommon(
       sets: from.sets,
       restBetweenSets: from.restBetweenSets,
+      tapBetweenSets: from.tapBetweenSets,
       transition: from.transition,
     ));
   }
@@ -139,16 +140,43 @@ class _ExerciseEditorScreenState extends State<ExerciseEditorScreen> {
               min: 1,
               onChanged: (v) => _set(e.copyWithCommon(sets: v)),
             ),
-            if (e.sets > 1)
-              NumberStepper(
-                label: 'Rest between sets',
-                unit: 's',
-                value: e.restBetweenSets,
-                onChanged: (v) => _set(e.copyWithCommon(restBetweenSets: v)),
+            if (e.sets > 1) ...[
+              const SizedBox(height: 8),
+              Text('Rest between sets', style: textTheme.bodyLarge),
+              const SizedBox(height: 8),
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(
+                    value: false,
+                    label: Text('Countdown'),
+                    icon: Icon(Icons.timer_outlined),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    label: Text('Wait for tap'),
+                    icon: Icon(Icons.touch_app_outlined),
+                  ),
+                ],
+                selected: {e.tapBetweenSets},
+                onSelectionChanged: (s) =>
+                    _set(e.copyWithCommon(tapBetweenSets: s.first)),
               ),
+              if (!e.tapBetweenSets)
+                NumberStepper(
+                  label: 'Rest',
+                  unit: 's',
+                  value: e.restBetweenSets,
+                  onChanged: (v) =>
+                      _set(e.copyWithCommon(restBetweenSets: v)),
+                ),
+            ],
             const SizedBox(height: 24),
             Text(
-              'Duration ≈ ${formatDuration(estimateExercise(e))}',
+              [
+                'Duration ≈ ${formatDuration(estimateExercise(e))}',
+                if (e.tapBetweenSets && e.sets > 1)
+                  e.sets == 2 ? '+ 1 tap' : '+ ${e.sets - 1} taps',
+              ].join(' '),
               textAlign: TextAlign.center,
               style: textTheme.titleMedium,
             ),
