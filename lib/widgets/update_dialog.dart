@@ -73,6 +73,7 @@ Future<void> _downloadWithProgress(
   UpdateInfo update,
 ) async {
   final progress = ValueNotifier<double>(0);
+  final cancel = Completer<void>();
 
   unawaited(showDialog<void>(
     context: context,
@@ -85,6 +86,16 @@ Future<void> _downloadWithProgress(
           value: value > 0 ? value : null,
         ),
       ),
+      actions: [
+        // The dialog is closed by the `finally` below once the download
+        // has actually stopped, not here.
+        TextButton(
+          onPressed: () {
+            if (!cancel.isCompleted) cancel.complete();
+          },
+          child: const Text('Cancel'),
+        ),
+      ],
     ),
   ));
 
@@ -92,7 +103,10 @@ Future<void> _downloadWithProgress(
     await updateService.downloadAndInstall(
       update,
       onProgress: (p) => progress.value = p,
+      cancel: cancel.future,
     );
+  } on UpdateCancelledException {
+    // The user asked for this - nothing to report.
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -163,6 +164,59 @@ void main() {
         serviceFor(client).downloadAndInstall(update),
         throwsA(isA<HttpException>()),
       );
+      expect(installCalls, isEmpty);
+    });
+
+    /// A response that sends one chunk and then stalls forever.
+    MockClient stallingClient() => MockClient.streaming((request, body) async {
+          final controller = StreamController<List<int>>();
+          controller.add(utf8.encode('partial'));
+          return http.StreamedResponse(controller.stream, 200, contentLength: 100);
+        });
+
+    test('times out when the download stalls, leaving no partial APK', () async {
+      final service = UpdateService(
+        httpClient: stallingClient(),
+        downloadStallTimeout: const Duration(milliseconds: 50),
+      );
+
+      await expectLater(
+        service.downloadAndInstall(update),
+        throwsA(isA<TimeoutException>()),
+      );
+      expect(installCalls, isEmpty);
+      expect(File('${tempDir.path}/apk_updates/tonaros-update.apk').existsSync(), isFalse);
+    });
+
+    test('times out when the server never responds', () async {
+      final service = UpdateService(
+        httpClient: MockClient.streaming((request, body) => Completer<http.StreamedResponse>().future),
+        downloadStallTimeout: const Duration(milliseconds: 50),
+      );
+
+      await expectLater(
+        service.downloadAndInstall(update),
+        throwsA(isA<TimeoutException>()),
+      );
+      expect(installCalls, isEmpty);
+    });
+
+    test('stops with UpdateCancelledException when cancelled', () async {
+      final cancel = Completer<void>();
+      final progress = <double>[];
+      final download = serviceFor(stallingClient()).downloadAndInstall(
+        update,
+        cancel: cancel.future,
+        onProgress: progress.add,
+      );
+
+      // Cancel once the first chunk has arrived.
+      while (progress.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      cancel.complete();
+
+      await expectLater(download, throwsA(isA<UpdateCancelledException>()));
       expect(installCalls, isEmpty);
     });
   });

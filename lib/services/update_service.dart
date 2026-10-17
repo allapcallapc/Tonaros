@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -15,13 +16,24 @@ class UpdateInfo {
   final String downloadUrl;
 }
 
+/// Thrown by [UpdateService.downloadAndInstall] when the caller cancels it.
+class UpdateCancelledException implements Exception {
+  const UpdateCancelledException();
+
+  @override
+  String toString() => 'UpdateCancelledException: download cancelled';
+}
+
 /// Checks GitHub Releases for a newer build than the one currently
 /// installed, then downloads and installs it via the system package
 /// installer - the sideload equivalent of a Play Store update, since the
 /// app is distributed as a GitHub Release APK rather than through the
 /// Play Store (see release-apk.yml).
 class UpdateService {
-  UpdateService({http.Client? httpClient}) : _httpClient = httpClient ?? http.Client();
+  UpdateService({
+    http.Client? httpClient,
+    this.downloadStallTimeout = const Duration(seconds: 30),
+  }) : _httpClient = httpClient ?? http.Client();
 
   static const _channel = MethodChannel('com.tonaros/updates');
   static const _repo = 'allapcallapc/Tonaros';
@@ -81,12 +93,19 @@ class UpdateService {
       .map((part) => int.tryParse(part.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0)
       .toList();
 
+  /// How long the download may go without receiving any data (waiting for
+  /// the response, or between chunks) before it's abandoned, so a stalled
+  /// connection fails instead of hanging the progress dialog forever.
+  final Duration downloadStallTimeout;
+
   /// Downloads [update]'s APK to the app's cache dir and hands it to the
   /// system package installer. [onProgress] reports 0.0-1.0 when the server
-  /// provides a content length (GitHub Releases always does).
+  /// provides a content length (GitHub Releases always does). Completing
+  /// [cancel] aborts the download with [UpdateCancelledException].
   Future<void> downloadAndInstall(
     UpdateInfo update, {
     void Function(double progress)? onProgress,
+    Future<void>? cancel,
   }) async {
     final cacheDir = await getTemporaryDirectory();
     final apkDir = Directory('${cacheDir.path}/apk_updates');
@@ -95,12 +114,34 @@ class UpdateService {
     }
     final file = File('${apkDir.path}/tonaros-update.apk');
 
+    final cancelled = Completer<void>();
+    cancel?.then((_) {
+      if (!cancelled.isCompleted) cancelled.complete();
+    });
+
     final request = http.Request('GET', Uri.parse(update.downloadUrl));
-    final streamedResponse = await _httpClient.send(request);
+    final responseFuture = _httpClient.send(request);
+    final http.StreamedResponse streamedResponse;
+    try {
+      streamedResponse = await Future.any([
+        responseFuture.timeout(downloadStallTimeout),
+        cancelled.future.then<http.StreamedResponse>(
+          (_) => throw const UpdateCancelledException(),
+        ),
+      ]);
+    } catch (_) {
+      // If the response still shows up after we've given up on it, release
+      // its connection instead of leaving the body unread.
+      unawaited(responseFuture.then(
+        (response) => response.stream.listen(null).cancel(),
+        onError: (_) {},
+      ));
+      rethrow;
+    }
     if (streamedResponse.statusCode != 200) {
-      // Drain the body so the connection can be reused, and don't hand an
-      // error page to the package installer as if it were an APK.
-      await streamedResponse.stream.drain<void>();
+      // Don't hand an error page to the package installer as if it were an
+      // APK.
+      unawaited(streamedResponse.stream.listen(null).cancel());
       throw HttpException(
         'APK download failed with HTTP ${streamedResponse.statusCode}',
         uri: request.url,
@@ -110,15 +151,39 @@ class UpdateService {
     var received = 0;
 
     final sink = file.openWrite();
+    final done = Completer<void>();
+    final subscription = streamedResponse.stream
+        .timeout(downloadStallTimeout)
+        .listen(
+          (chunk) {
+            sink.add(chunk);
+            received += chunk.length;
+            if (total > 0) onProgress?.call(received / total);
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (!done.isCompleted) done.completeError(error, stackTrace);
+          },
+          onDone: () {
+            if (!done.isCompleted) done.complete();
+          },
+          cancelOnError: true,
+        );
+    unawaited(cancelled.future.then((_) async {
+      if (done.isCompleted) return;
+      done.completeError(const UpdateCancelledException());
+      // Cancelling the subscription closes the underlying connection.
+      await subscription.cancel();
+    }));
+
     try {
-      await streamedResponse.stream.map((chunk) {
-        received += chunk.length;
-        if (total > 0) onProgress?.call(received / total);
-        return chunk;
-      }).pipe(sink);
-    } finally {
+      await done.future;
+    } catch (_) {
       await sink.close();
+      // Don't leave a truncated APK behind.
+      if (await file.exists()) await file.delete();
+      rethrow;
     }
+    await sink.close();
 
     await _channel.invokeMethod('installApk', {'filePath': file.path});
   }
