@@ -1,5 +1,5 @@
 name: tonaros
-description: "Tonaros: a Flutter web + Android app."
+description: "Tonaros: a mobile-first timer for physiotherapy exercises."
 publish_to: 'none'
 # The real version comes from the release tag (--build-name in CI, see
 # .release-please-manifest.json) - this is only what local builds report.
@@ -20,6 +20,7 @@ dependencies:
   # Locates a cache dir to download the update APK into - see
   # lib/services/update_service.dart.
   path_provider: ^2.1.1
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
