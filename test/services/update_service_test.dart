@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tonaros/services/update_service.dart';
 import 'package:http/http.dart' as http;
@@ -104,5 +106,64 @@ void main() {
     final update = await serviceFor(client).checkForUpdate();
 
     expect(update!.version, '2.0.0');
+  });
+
+  group('downloadAndInstall', () {
+    late Directory tempDir;
+    late List<MethodCall> installCalls;
+
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      tempDir = Directory.systemTemp.createTempSync('tonaros_update_test');
+      installCalls = [];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/path_provider'),
+        (call) async => tempDir.path,
+      );
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('com.tonaros/updates'),
+        (call) async {
+          installCalls.add(call);
+          return null;
+        },
+      );
+    });
+
+    tearDown(() {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'), null);
+      messenger.setMockMethodCallHandler(
+          const MethodChannel('com.tonaros/updates'), null);
+      tempDir.deleteSync(recursive: true);
+    });
+
+    const update = UpdateInfo(
+      version: '1.1.0',
+      downloadUrl: 'https://example.com/app-release.apk',
+    );
+
+    test('hands the downloaded APK to the installer', () async {
+      final client = MockClient((request) async => http.Response('apk-bytes', 200));
+
+      await serviceFor(client).downloadAndInstall(update);
+
+      expect(installCalls, hasLength(1));
+      final path = (installCalls.single.arguments as Map)['filePath'] as String;
+      expect(File(path).readAsStringSync(), 'apk-bytes');
+    });
+
+    test('throws and does not install on a non-200 response', () async {
+      final client = MockClient((request) async => http.Response('Not Found', 404));
+
+      await expectLater(
+        serviceFor(client).downloadAndInstall(update),
+        throwsA(isA<HttpException>()),
+      );
+      expect(installCalls, isEmpty);
+    });
   });
 }

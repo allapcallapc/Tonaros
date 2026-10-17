@@ -7,9 +7,11 @@ on:
   push:
     branches: [main]
 
+# Only the newest main matters, so a newer push supersedes an older run.
+# Kept separate from the other deploy workflows - see deploy.yml.
 concurrency:
-  group: gh-pages-publish
-  cancel-in-progress: false
+  group: deploy-main
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -53,10 +55,9 @@ jobs:
             --dart-define-from-file=env/staging.json
 
       - name: Deploy to gh-pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: ./.github/actions/publish-gh-pages
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./build/web
+          token: ${{ secrets.GITHUB_TOKEN }}
+          source_dir: build/web
           destination_dir: main
-          keep_files: true
           commit_message: 'deploy: main @ ${{ github.sha }}'

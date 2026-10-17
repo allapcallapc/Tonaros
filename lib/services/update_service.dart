@@ -97,6 +97,15 @@ class UpdateService {
 
     final request = http.Request('GET', Uri.parse(update.downloadUrl));
     final streamedResponse = await _httpClient.send(request);
+    if (streamedResponse.statusCode != 200) {
+      // Drain the body so the connection can be reused, and don't hand an
+      // error page to the package installer as if it were an APK.
+      await streamedResponse.stream.drain<void>();
+      throw HttpException(
+        'APK download failed with HTTP ${streamedResponse.statusCode}',
+        uri: request.url,
+      );
+    }
     final total = streamedResponse.contentLength ?? 0;
     var received = 0;
 

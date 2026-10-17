@@ -37,24 +37,36 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _checkOnLaunch() async {
     if (!UpdateService.isSupported) return;
-    final update = await _updateService.checkForUpdate();
-    if (update == null || !mounted) return;
-    await showUpdateAvailableDialog(context, _updateService, update);
+    await _runUpdateCheck(reportResult: false);
   }
 
-  Future<void> _checkForUpdates() async {
-    setState(() {
-      _checkingForUpdate = true;
-      _updateStatusMessage = 'Checking for updates…';
-    });
-    final update = await _updateService.checkForUpdate();
-    if (!mounted) return;
-    setState(() {
-      _checkingForUpdate = false;
-      _updateStatusMessage = update == null ? "You're up to date." : null;
-    });
-    if (update != null) {
-      await showUpdateAvailableDialog(context, _updateService, update);
+  Future<void> _checkForUpdates() => _runUpdateCheck(reportResult: true);
+
+  /// True from the start of a check until its update dialog/download flow
+  /// finishes, so the launch check and a manual check can't overlap (two
+  /// stacked dialogs, two downloads writing the same APK file).
+  bool _updateFlowActive = false;
+
+  Future<void> _runUpdateCheck({required bool reportResult}) async {
+    if (_updateFlowActive) return;
+    _updateFlowActive = true;
+    try {
+      setState(() {
+        _checkingForUpdate = true;
+        _updateStatusMessage = reportResult ? 'Checking for updates…' : null;
+      });
+      final update = await _updateService.checkForUpdate();
+      if (!mounted) return;
+      setState(() {
+        _checkingForUpdate = false;
+        _updateStatusMessage =
+            reportResult && update == null ? "You're up to date." : null;
+      });
+      if (update != null) {
+        await showUpdateAvailableDialog(context, _updateService, update);
+      }
+    } finally {
+      _updateFlowActive = false;
     }
   }
 

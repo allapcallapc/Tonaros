@@ -13,8 +13,11 @@ on:
   release:
     types: [published]
 
+# Own group (not shared with the preview deploys, which would let a queued
+# preview silently cancel a pending production deploy) - concurrent gh-pages
+# pushes are handled by the publish-gh-pages action's retry instead.
 concurrency:
-  group: gh-pages-publish
+  group: deploy-prod
   cancel-in-progress: false
 
 jobs:
@@ -68,11 +71,11 @@ jobs:
 
       # Production lives at the root of gh-pages, alongside /main/ (latest
       # main branch) and /pr-<n>/ (per-PR previews) published by the other
-      # deploy workflows - keep_files so this push doesn't wipe them out.
+      # deploy workflows - publishing to the root copies over without
+      # deleting, so this push doesn't wipe them out.
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: ./.github/actions/publish-gh-pages
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./build/web
-          keep_files: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+          source_dir: build/web
           commit_message: 'deploy: release ${{ github.event.release.tag_name }}'

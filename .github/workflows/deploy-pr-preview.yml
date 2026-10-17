@@ -14,9 +14,12 @@ on:
     types: [opened, synchronize, reopened, closed]
     branches: [main]
 
+# One group per PR: a new push (or closing the PR) supersedes that PR's
+# in-flight preview, without touching other PRs or the main/production
+# deploys - see deploy.yml.
 concurrency:
-  group: gh-pages-publish
-  cancel-in-progress: false
+  group: deploy-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   preview:
@@ -63,12 +66,11 @@ jobs:
             --dart-define-from-file=env/staging.json
 
       - name: Deploy to gh-pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: ./.github/actions/publish-gh-pages
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./build/web
+          token: ${{ secrets.GITHUB_TOKEN }}
+          source_dir: build/web
           destination_dir: pr-${{ github.event.pull_request.number }}
-          keep_files: true
           commit_message: 'deploy: preview for PR #${{ github.event.pull_request.number }}'
 
   cleanup:
@@ -77,20 +79,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout gh-pages
+      # Only needed for the local publish-gh-pages action - taken from the
+      # default branch, since a closed PR's merge ref may no longer exist.
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: gh-pages
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Remove preview folder
-        run: |
-          PR_DIR="pr-${{ github.event.pull_request.number }}"
-          if [ -d "$PR_DIR" ]; then
-            git rm -r --ignore-unmatch "$PR_DIR"
-            git config user.name 'github-actions[bot]'
-            git config user.email 'github-actions[bot]@users.noreply.github.com'
-            git commit -m "deploy: remove preview for PR #${{ github.event.pull_request.number }}"
-            git push
-          else
-            echo "No preview folder for this PR, nothing to remove."
-          fi
+        uses: ./.github/actions/publish-gh-pages
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          destination_dir: pr-${{ github.event.pull_request.number }}
+          commit_message: 'deploy: remove preview for PR #${{ github.event.pull_request.number }}'
