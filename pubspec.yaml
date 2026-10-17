@@ -1,0 +1,50 @@
+name: tonaros
+description: "Tonaros: a Flutter web + Android app."
+publish_to: 'none'
+# The real version comes from the release tag (--build-name in CI, see
+# .release-please-manifest.json) - this is only what local builds report.
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  # Fetches the latest GitHub Release - see lib/services/update_service.dart.
+  http: ^1.2.2
+  # Reads the installed app version - see lib/services/update_service.dart
+  # and the version shown on the home screen.
+  package_info_plus: ^9.0.0
+  # Locates a cache dir to download the update APK into - see
+  # lib/services/update_service.dart.
+  path_provider: ^2.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo.png
+
+flutter_launcher_icons:
+  android: true
+  image_path: "assets/logo.png"
+  # Android 8+ adaptive icon: the logo shrunk into the safe zone on white,
+  # so launchers that mask to a circle/squircle don't clip the outer ring.
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/logo_foreground.png"
+  min_sdk_android: 21
+  web:
+    generate: true
+    image_path: "assets/logo.png"
+    # Must match web/manifest.json's background_color/theme_color -
+    # flutter_launcher_icons overwrites those fields on every run, so a
+    # mismatch here silently clobbers the PWA's brand color.
+    background_color: "#FFFFFF"
+    theme_color: "#5E5BC9"

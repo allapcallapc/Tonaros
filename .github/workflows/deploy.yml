@@ -1,0 +1,78 @@
+name: Deploy to GitHub Pages
+
+# Triggered by a release being published (not a tag push): release-apk.yml
+# is what actually publishes releases (using a PAT so this trigger fires
+# at all - see its own comments), and by the time a release is published,
+# a real APK build has already succeeded, so gating web deploys on the
+# same event keeps both in lockstep.
+#
+# Deploys to the root of gh-pages (branch-based Pages source), alongside
+# /main/ and /pr-<n>/ published by deploy-main.yml and
+# deploy-pr-preview.yml - see those for the preview-environment setup.
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: gh-pages-publish
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment:
+      name: github-pages
+      url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Generate app icons
+        uses: ./.github/actions/generate-app-icons
+        with:
+          platform: web
+
+      - name: Determine version from tag
+        id: version
+        uses: ./.github/actions/version-from-tag
+        with:
+          tag: ${{ github.event.release.tag_name }}
+
+      - name: Build web app
+        # env/prod.json sets APP_ENV=prod (no staging banner) - see env/README.md.
+        run: |
+          flutter build web --base-href "/${{ github.event.repository.name }}/" \
+            --build-name=${{ steps.version.outputs.name }} \
+            --dart-define-from-file=env/prod.json
+
+      - name: List build output
+        run: ls -la build/web/
+        continue-on-error: true
+
+      # Production lives at the root of gh-pages, alongside /main/ (latest
+      # main branch) and /pr-<n>/ (per-PR previews) published by the other
+      # deploy workflows - keep_files so this push doesn't wipe them out.
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/web
+          keep_files: true
+          commit_message: 'deploy: release ${{ github.event.release.tag_name }}'

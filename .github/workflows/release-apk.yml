@@ -1,0 +1,96 @@
+name: Release APK
+
+# Invoked as a reusable workflow by release-please.yml only - not
+# triggered by a tag push. The final step below publishes the release
+# using a PAT, which creates the underlying tag as a side effect; if this
+# workflow also listened for `push: tags`, that tag creation would
+# redundantly re-trigger a second run of itself, which would then fail
+# trying to re-upload an asset to the now-immutable, already-published
+# release.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag/version being released'
+        required: true
+        type: string
+      generate_release_notes:
+        description: 'Auto-generate release notes (set false when the release already has notes, e.g. from release-please)'
+        required: false
+        type: boolean
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Generate app icons
+        uses: ./.github/actions/generate-app-icons
+        with:
+          platform: android
+
+      - name: Determine version from tag
+        id: version
+        uses: ./.github/actions/version-from-tag
+        with:
+          tag: ${{ inputs.tag }}
+
+      - name: Decode release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        # Written inside android/app/ so the relative storeFile path below
+        # (resolved by Gradle relative to the app module) finds it.
+        run: echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+
+      - name: Write key.properties
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=release.keystore
+          EOF
+
+      - name: Build release APK
+        # env/prod.json sets APP_ENV=prod (no staging banner) - see env/README.md.
+        run: |
+          flutter build apk --release \
+            --build-name=${{ steps.version.outputs.name }} \
+            --build-number=${{ github.run_number }} \
+            --dart-define-from-file=env/prod.json
+
+      - name: Attach APK and publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          tag_name: ${{ inputs.tag }}
+          files: build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: ${{ inputs.generate_release_notes != false }}
+          draft: false
