@@ -106,4 +106,22 @@ void main() {
     expect(find.text("You're up to date."), findsNothing);
     debugDefaultTargetPlatformOverride = null;
   });
+
+  testWidgets('About opens a dialog with the version and licenses link',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: HomeScreen(updateService: _FakeUpdateService(null)),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('About'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AboutDialog), findsOneWidget);
+    expect(
+      find.descendant(of: find.byType(AboutDialog), matching: find.text('1.2.3')),
+      findsOneWidget,
+    );
+    expect(find.text('View licenses'), findsOneWidget);
+  });
 }
