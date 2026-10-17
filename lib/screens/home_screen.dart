@@ -70,6 +70,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Flutter's stock About dialog, which also links to the generated
+  /// open-source licenses page for every bundled package.
+  void _showAbout() {
+    showAboutDialog(
+      context: context,
+      applicationName: 'Tonaros',
+      applicationVersion: _version,
+      applicationIcon: Image.asset('assets/logo.png', width: 48, height: 48),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
@@ -105,6 +116,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     Text(_updateStatusMessage!, style: textTheme.bodySmall),
                   ],
                 ],
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: _showAbout,
+                  child: const Text('About'),
+                ),
               ],
             ),
           ),
