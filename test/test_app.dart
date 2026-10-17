@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tonaros/app_scope.dart';
 import 'package:tonaros/main.dart';
+import 'package:tonaros/services/background_session.dart';
 import 'package:tonaros/services/cues.dart';
 import 'package:tonaros/services/session_store.dart';
 import 'package:tonaros/services/settings_store.dart';
@@ -86,4 +87,22 @@ Future<Widget> withAppScope(Widget child,
     cues: FakeCueOutput(),
     child: child,
   );
+}
+
+/// Records what the background notification would show.
+class FakeBackgroundSession implements BackgroundSession {
+  final shown = <String>[];
+  bool running = false;
+
+  @override
+  Future<void> start(BackgroundStatus status) async {
+    running = true;
+    shown.add(status.text);
+  }
+
+  @override
+  Future<void> update(BackgroundStatus status) async => shown.add(status.text);
+
+  @override
+  Future<void> stop() async => running = false;
 }

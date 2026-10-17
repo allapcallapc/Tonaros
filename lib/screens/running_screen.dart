@@ -6,6 +6,7 @@ import '../app_scope.dart';
 import '../engine/session_plan.dart';
 import '../engine/session_runner.dart';
 import '../models/session.dart';
+import '../services/background_session.dart';
 import '../services/cues.dart';
 import '../services/settings_store.dart';
 import '../theme/phase_colors.dart';
@@ -22,6 +23,7 @@ class RunningScreen extends StatefulWidget {
     required this.session,
     this.clock,
     this.cueOutput,
+    this.background,
   });
 
   final Session session;
@@ -31,6 +33,9 @@ class RunningScreen extends StatefulWidget {
 
   /// Defaults to the app-wide [AppScope.cues].
   final CueOutput? cueOutput;
+
+  /// Defaults to the Android foreground service (a no-op elsewhere).
+  final BackgroundSession? background;
 
   @override
   State<RunningScreen> createState() => _RunningScreenState();
@@ -52,12 +57,16 @@ class _RunningScreenState extends State<RunningScreen>
   late final CueOutput _cueOutput =
       widget.cueOutput ?? AppScope.read(context).cues;
   late final CuePlayer _cues;
+  late final BackgroundSession _background =
+      widget.background ?? PlatformBackgroundSession();
+
+  /// The phase and status the notification last showed.
+  (int, RunnerStatus)? _shown;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _runner.addListener(_onRunnerChanged);
     // Listen before starting, so "get ready" gets its cue too.
     _cues = CuePlayer(
       events: _runner.events,
@@ -66,6 +75,10 @@ class _RunningScreenState extends State<RunningScreen>
     );
     _cueOutput.setKeepAwake(true);
     _runner.start();
+    _runner.addListener(_onRunnerChanged);
+    // Keep timing and cues going with the app in the background.
+    _shown = (_runner.index, _runner.status);
+    _background.start(_backgroundStatus());
   }
 
   @override
@@ -75,6 +88,7 @@ class _RunningScreenState extends State<RunningScreen>
     _cues.dispose();
     _runner.dispose();
     _cueOutput.setKeepAwake(false);
+    _background.stop();
     super.dispose();
   }
 
@@ -83,6 +97,44 @@ class _RunningScreenState extends State<RunningScreen>
     // Timers may have been throttled in the background; catch up at once
     // rather than on the next timer tick.
     if (state == AppLifecycleState.resumed) _runner.tick();
+  }
+
+  /// "Hold · Rep 3/10 · Quad set", with a countdown to the phase's end.
+  BackgroundStatus _backgroundStatus() {
+    final phase = _runner.phase;
+    final exercise = _runner.exercise;
+    final String text;
+    switch (_runner.status) {
+      case RunnerStatus.waitingForTap:
+        final next = _runner.nextPhase;
+        final nextExercise =
+            next == null ? null : widget.session.exercises[next.exerciseIndex];
+        text = switch (next) {
+          null => 'Tap to continue',
+          // A tap rest between sets: the next set of the same exercise.
+          _ when next.exerciseIndex == phase.exerciseIndex =>
+            'Tap to continue · Next: Set ${next.set}/${exercise.sets} · '
+                '${exercise.name}',
+          _ => 'Tap to continue · Next: ${nextExercise!.name}',
+        };
+      default:
+        text = [
+          if (_runner.status == RunnerStatus.paused) 'Paused',
+          phase.label,
+          if (phase.rep > 0) 'Rep ${phase.rep}/${exercise.reps}',
+          if (phase.kind != PhaseKind.getReady &&
+              phase.kind != PhaseKind.transition)
+            exercise.name,
+        ].join(' · ');
+    }
+    return BackgroundStatus(
+      title: widget.session.name,
+      text: text,
+      // The real clock, not the runner's: the system draws the countdown.
+      endsAt: _runner.status == RunnerStatus.running
+          ? DateTime.now().add(_runner.remaining)
+          : null,
+    );
   }
 
   void _onRunnerChanged() {
@@ -100,6 +152,11 @@ class _RunningScreenState extends State<RunningScreen>
         ),
       );
     } else {
+      final shown = (_runner.index, _runner.status);
+      if (shown != _shown) {
+        _shown = shown;
+        _background.update(_backgroundStatus());
+      }
       setState(() {});
     }
   }
