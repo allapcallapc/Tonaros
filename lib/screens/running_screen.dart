@@ -116,7 +116,9 @@ class _RunningScreenState extends State<RunningScreen>
   @override
   Widget build(BuildContext context) {
     final runner = _runner;
-    if (runner.status == RunnerStatus.finished) return const Scaffold();
+    // Once finished, keep drawing this last frame (input off) while the
+    // summary slides in over it, rather than a blank page.
+    final finished = runner.status == RunnerStatus.finished;
     final phase = runner.phase;
     final exercise = runner.exercise;
     final isTempo = exercise is TempoExercise;
@@ -137,86 +139,89 @@ class _RunningScreenState extends State<RunningScreen>
         appBar: AppBar(
           leading: IconButton(
             tooltip: 'Stop',
-            onPressed: _confirmStop,
+            onPressed: finished ? null : _confirmStop,
             icon: const Icon(Icons.close),
           ),
           title: Text(widget.session.name),
         ),
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(
-              children: [
-                // Exercise x/y, name, set x/y.
-                Text(
-                  'Exercise ${shownIndex + 1}/$exerciseCount',
-                  style: textTheme.labelLarge
-                      ?.copyWith(color: colors.onSurfaceVariant),
-                ),
-                Text(
-                  widget.session.exercises[shownIndex].name,
-                  style: textTheme.headlineSmall,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                SizedBox(
-                  height: 24,
-                  child: inExercise && exercise.sets > 1
-                      ? Text('Set ${phase.set}/${exercise.sets}',
-                          style: textTheme.titleMedium)
-                      : null,
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      // Tempo exercises get a violet tinted panel.
-                      color: showTempoLook
-                          ? PhaseColors.move.withValues(alpha: 0.12)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(28),
-                      border: showTempoLook
-                          ? Border.all(
-                              color: PhaseColors.move.withValues(alpha: 0.35))
-                          : null,
-                    ),
-                    child: Column(
-                      children: [
-                        Expanded(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: runner.status == RunnerStatus.waitingForTap
-                                ? runner.skipPhase
-                                : null,
-                            child: Center(child: _LiveTimer(runner: runner)),
+        body: IgnorePointer(
+          ignoring: finished,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                children: [
+                  // Exercise x/y, name, set x/y.
+                  Text(
+                    'Exercise ${shownIndex + 1}/$exerciseCount',
+                    style: textTheme.labelLarge
+                        ?.copyWith(color: colors.onSurfaceVariant),
+                  ),
+                  Text(
+                    widget.session.exercises[shownIndex].name,
+                    style: textTheme.headlineSmall,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  SizedBox(
+                    height: 24,
+                    child: inExercise && exercise.sets > 1
+                        ? Text('Set ${phase.set}/${exercise.sets}',
+                            style: textTheme.titleMedium)
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        // Tempo exercises get a violet tinted panel.
+                        color: showTempoLook
+                            ? PhaseColors.move.withValues(alpha: 0.12)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(28),
+                        border: showTempoLook
+                            ? Border.all(
+                                color: PhaseColors.move.withValues(alpha: 0.35))
+                            : null,
+                      ),
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: runner.status == RunnerStatus.waitingForTap
+                                  ? runner.skipPhase
+                                  : null,
+                              child: Center(child: _LiveTimer(runner: runner)),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          height: 48,
-                          child: inExercise
-                              ? RepDots(
-                                  reps: exercise.reps,
-                                  repsDone: phase.repsDone,
-                                  color: isTempo
-                                      ? PhaseColors.move
-                                      : PhaseColors.hold1,
-                                  square: isTempo,
-                                )
-                              : null,
-                        ),
-                      ],
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            height: 48,
+                            child: inExercise
+                                ? RepDots(
+                                    reps: exercise.reps,
+                                    repsDone: phase.repsDone,
+                                    color: isTempo
+                                        ? PhaseColors.move
+                                        : PhaseColors.hold1,
+                                    square: isTempo,
+                                  )
+                                : null,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                _NextUp(runner: runner),
-                const SizedBox(height: 12),
-                _Controls(runner: runner),
-              ],
+                  const SizedBox(height: 12),
+                  _NextUp(runner: runner),
+                  const SizedBox(height: 12),
+                  _Controls(runner: runner),
+                ],
+              ),
             ),
           ),
         ),

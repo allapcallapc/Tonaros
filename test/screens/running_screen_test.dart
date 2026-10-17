@@ -215,4 +215,18 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('Stop session?'), findsNothing);
   });
+
+  testWidgets('the last frame stays up while the summary slides in',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    for (final seconds in [3, 13, 10, 5]) {
+      await elapse(tester, seconds);
+    }
+    // Mid-transition: the running screen is still drawn underneath.
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(SummaryScreen), findsOneWidget);
+    expect(find.text('Exercise 2/2'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Session complete'), findsOneWidget);
+  });
 }

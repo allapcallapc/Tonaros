@@ -62,7 +62,11 @@ class SessionRunner extends ChangeNotifier {
 
   final _events = StreamController<RunnerEvent>.broadcast(sync: true);
 
-  /// Phase changes, second ticks and the end of the session.
+  /// Phase changes, second ticks and the end of the session. Delivered
+  /// synchronously, in the middle of the state change that caused them, so
+  /// a listener must not call back into the runner (skip, pause, stop...)
+  /// from its handler: that would re-enter the controller while it fires.
+  /// React through [notifyListeners] or a later microtask instead.
   Stream<RunnerEvent> get events => _events.stream;
 
   RunnerStatus get status => _status;
@@ -119,8 +123,11 @@ class SessionRunner extends ChangeNotifier {
   /// Set when a phase was skipped to while paused: [resume] announces it.
   bool _announceOnResume = false;
 
-  int holdsDone = 0;
-  int repsDone = 0;
+  /// Holds and reps completed so far (skipped ones don't count).
+  int get holdsDone => _holdsDone;
+  int _holdsDone = 0;
+  int get repsDone => _repsDone;
+  int _repsDone = 0;
 
   Duration get remaining => switch (_status) {
         RunnerStatus.running => _nonNegative(_phaseEnd! - _clock()),
@@ -184,10 +191,12 @@ class SessionRunner extends ChangeNotifier {
     _moveTo(_index + 1, skipped: true);
   }
 
-  /// Jumps to the start of the next exercise (or ends the session).
+  /// Skips the exercise on screen ([displayExerciseIndex] - during get
+  /// ready or a transition, the one coming up) and jumps to the start of the
+  /// one after it, or ends the session.
   void skipExercise() {
     if (!_started || _status == RunnerStatus.finished) return;
-    final current = phase.kind == PhaseKind.getReady ? -1 : phase.exerciseIndex;
+    final current = displayExerciseIndex;
     var next = _index + 1;
     while (next < plan.length &&
         (plan[next].exerciseIndex <= current ||
@@ -295,8 +304,8 @@ class SessionRunner extends ChangeNotifier {
   }
 
   void _completePhase(Phase p) {
-    if (p.isHold) holdsDone++;
-    if (p.endsRep) repsDone++;
+    if (p.isHold) _holdsDone++;
+    if (p.endsRep) _repsDone++;
   }
 
   void _stopActiveClock([Duration? at]) {

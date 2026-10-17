@@ -62,6 +62,29 @@ class Phase {
   /// Completing this phase completes a rep (its last hold or return).
   final bool endsRep;
 
+  Phase copyWith({
+    PhaseKind? kind,
+    String? label,
+    int? seconds,
+    int? exerciseIndex,
+    int? set,
+    int? rep,
+    double? repsDone,
+    bool? waitsForTap,
+    bool? endsRep,
+  }) =>
+      Phase(
+        kind: kind ?? this.kind,
+        label: label ?? this.label,
+        seconds: seconds ?? this.seconds,
+        exerciseIndex: exerciseIndex ?? this.exerciseIndex,
+        set: set ?? this.set,
+        rep: rep ?? this.rep,
+        repsDone: repsDone ?? this.repsDone,
+        waitsForTap: waitsForTap ?? this.waitsForTap,
+        endsRep: endsRep ?? this.endsRep,
+      );
+
   bool get isHold =>
       kind == PhaseKind.hold1 ||
       kind == PhaseKind.hold2 ||
@@ -127,17 +150,7 @@ List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
   // - whichever it is, since zero-length phases are left out.
   void endRep(int repStart) {
     if (phases.length == repStart) return;
-    final p = phases.removeLast();
-    phases.add(Phase(
-      kind: p.kind,
-      label: p.label,
-      seconds: p.seconds,
-      exerciseIndex: p.exerciseIndex,
-      set: p.set,
-      rep: p.rep,
-      repsDone: p.repsDone,
-      endsRep: true,
-    ));
+    phases.add(phases.removeLast().copyWith(endsRep: true));
   }
 
   for (var set = 1; set <= exercise.sets; set++) {

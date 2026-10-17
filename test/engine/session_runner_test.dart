@@ -289,4 +289,24 @@ void main() {
     expect(runner.phase.exerciseIndex, 0);
     expect(runner.displayExerciseIndex, 1);
   });
+
+  test('skip exercise from get ready or a transition skips the one shown',
+      () {
+    setUpRunner(sampleSession());
+    runner.start();
+    // Get ready shows A: skipping it lands on B.
+    runner.skipExercise();
+    expect(runner.exercise.name, 'B');
+    expect(runner.phase.kind, PhaseKind.move);
+
+    setUpRunner(Session(id: 's', name: 'S', exercises: [
+      ...sampleSession().exercises,
+      sampleSession().exercises.first.copyWithCommon(id: 'c', name: 'C'),
+    ]));
+    runner.start();
+    elapse(3 + 13 + 1); // in the transition after A, showing B
+    expect(runner.phase.kind, PhaseKind.transition);
+    runner.skipExercise();
+    expect(runner.exercise.name, 'C');
+  });
 }
