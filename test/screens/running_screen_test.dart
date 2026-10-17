@@ -63,6 +63,9 @@ void main() {
     await tester.tap(find.bySemanticsLabel('Pause'));
     await tester.pump();
     await elapse(tester, 30);
+    // Paused: once the button ripple settles, nothing schedules frames.
+    await tester.pump(const Duration(seconds: 2));
+    expect(tester.binding.hasScheduledFrame, isFalse);
     expect(find.text('4'), findsOneWidget);
 
     await tester.tap(find.bySemanticsLabel('Resume'));
@@ -132,5 +135,55 @@ void main() {
     await elapse(tester, 1);
     expect(tester.widget<TempoCurve>(find.byType(TempoCurve)).progress,
         closeTo(0.2, 0.05));
+  });
+
+  testWidgets('skipping past the last exercise counts as stopped',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await tester.tap(find.byTooltip('Skip exercise'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Skip exercise'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Skip exercise'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Session stopped'), findsOneWidget);
+  });
+
+  testWidgets('next-up names a tap set rest and the next exercise',
+      (tester) async {
+    await pumpRunning(
+      tester,
+      Session(id: 's', name: 'S', exercises: [
+        const HoldExercise(
+          id: 'a',
+          name: 'A',
+          sets: 2,
+          restBetweenSets: 30,
+          tapBetweenSets: true,
+          reps: 1,
+          holdSeconds: 5,
+          restBetweenReps: 0,
+        ),
+        const TempoExercise(
+          id: 'b',
+          name: 'B',
+          sets: 1,
+          restBetweenSets: 0,
+          reps: 1,
+          moveSeconds: 2,
+          holdSeconds: 1,
+          returnSeconds: 2,
+        ),
+      ]),
+    );
+    await elapse(tester, 3);
+    expect(find.text('Next: Set rest (tap)'), findsOneWidget);
+
+    await elapse(tester, 5);
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    // Last hold of A, then the transition: name B, not the transition.
+    expect(find.text('Next: B'), findsOneWidget);
   });
 }

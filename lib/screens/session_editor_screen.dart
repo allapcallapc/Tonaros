@@ -10,15 +10,6 @@ import '../widgets/number_stepper.dart';
 import 'exercise_editor_screen.dart';
 import 'running_screen.dart';
 
-/// Opens the running screen for [session].
-void startSession(BuildContext context, Session session) {
-  if (session.exercises.isEmpty) return;
-  Navigator.push(
-    context,
-    MaterialPageRoute(builder: (_) => RunningScreen(session: session)),
-  );
-}
-
 /// A session's exercises and the transitions between them. Every change is
 /// saved straight away.
 class SessionEditorScreen extends StatelessWidget {
@@ -208,7 +199,7 @@ class _SessionEditor extends StatelessWidget {
                     minimumSize: const Size.fromHeight(60),
                     textStyle: textTheme.titleLarge,
                   ),
-                  onPressed: () => startSession(context, session),
+                  onPressed: () => RunningScreen.open(context, session),
                   icon: const Icon(Icons.play_arrow, size: 32),
                   label: const Text('Start'),
                 ),

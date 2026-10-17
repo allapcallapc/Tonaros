@@ -147,7 +147,9 @@ void main() {
 
     runner.skipExercise();
     expect(runner.status, RunnerStatus.finished);
-    expect(events.last, isA<SessionFinished>());
+    // Skipped past the end: stopped early, no "finished" fanfare.
+    expect(runner.completed, isFalse);
+    expect(events.whereType<SessionFinished>(), isEmpty);
   });
 
   test('skipping while paused stays paused at the new phase', () {
@@ -167,6 +169,7 @@ void main() {
     elapse(3 + 13 + 10 + 5);
     expect(runner.status, RunnerStatus.finished);
     expect(events.last, isA<SessionFinished>());
+    expect(runner.completed, isTrue);
     expect(runner.holdsDone, 3); // 2 holds + 1 tempo hold
     expect(runner.repsDone, 3);
     expect(runner.activeTime, const Duration(seconds: 31));
@@ -206,5 +209,46 @@ void main() {
     elapse(5);
     expect(runner.status, RunnerStatus.finished);
     expect(runner.holdsDone, 2);
+  });
+
+  test('a skip while paused is announced on resume, not while paused', () {
+    setUpRunner(sampleSession());
+    runner.start();
+    elapse(4);
+    runner.pause();
+    events.clear();
+    runner.skipPhase();
+    expect(runner.phase.kind, PhaseKind.rest);
+    expect(events.whereType<PhaseStarted>(), isEmpty);
+
+    runner.resume();
+    expect(
+      events.whereType<PhaseStarted>().single,
+      isA<PhaseStarted>()
+          .having((e) => e.phase.kind, 'kind', PhaseKind.rest)
+          .having((e) => e.skipped, 'skipped', true),
+    );
+  });
+
+  test('reps still count when the rep-ending phase has 0 s', () {
+    // Two holds, but hold 2 is 0 s (e.g. older saved data): the rest after
+    // hold 1 is the rep's last phase.
+    setUpRunner(Session(id: 's', name: 'S', exercises: [
+      const HoldExercise(
+        id: 'a',
+        name: 'A',
+        sets: 1,
+        restBetweenSets: 0,
+        reps: 2,
+        holdSeconds: 2,
+        restBetweenReps: 1,
+        twoHolds: true,
+        secondHoldSeconds: 0,
+      ),
+    ]));
+    runner.start();
+    elapse(3 + 2 + 1 + 1 + 2 + 1);
+    expect(runner.status, RunnerStatus.finished);
+    expect(runner.repsDone, 2);
   });
 }

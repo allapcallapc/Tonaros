@@ -110,7 +110,7 @@ List<Phase> buildPlan(Session session) {
 List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
   final phases = <Phase>[];
   void add(PhaseKind kind, String label, int seconds, int set, int rep,
-      double repsDone, {bool endsRep = false}) {
+      double repsDone) {
     if (seconds <= 0) return;
     phases.add(Phase(
       kind: kind,
@@ -120,7 +120,23 @@ List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
       set: set,
       rep: rep,
       repsDone: repsDone,
-      endsRep: endsRep,
+    ));
+  }
+
+  // Completing the last phase actually added for a rep completes the rep
+  // - whichever it is, since zero-length phases are left out.
+  void endRep(int repStart) {
+    if (phases.length == repStart) return;
+    final p = phases.removeLast();
+    phases.add(Phase(
+      kind: p.kind,
+      label: p.label,
+      seconds: p.seconds,
+      exerciseIndex: p.exerciseIndex,
+      set: p.set,
+      rep: p.rep,
+      repsDone: p.repsDone,
+      endsRep: true,
     ));
   }
 
@@ -128,6 +144,7 @@ List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
     for (var rep = 1; rep <= exercise.reps; rep++) {
       final before = (rep - 1).toDouble();
       final lastRep = rep == exercise.reps;
+      final repStart = phases.length;
       switch (exercise) {
         case HoldExercise e:
           if (e.twoHolds) {
@@ -136,11 +153,11 @@ List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
             add(PhaseKind.rest, 'Rest', e.restBetweenReps, set, rep,
                 before + 0.5);
             add(PhaseKind.hold2, e.secondHoldName, e.secondHoldSeconds, set,
-                rep, before + 0.5, endsRep: true);
+                rep, before + 0.5);
           } else {
-            add(PhaseKind.hold1, 'Hold', e.holdSeconds, set, rep, before,
-                endsRep: true);
+            add(PhaseKind.hold1, 'Hold', e.holdSeconds, set, rep, before);
           }
+          endRep(repStart);
           // The last rep's rest is replaced by the rest between sets.
           if (!lastRep) {
             add(PhaseKind.rest, 'Rest', e.restBetweenReps, set, rep,
@@ -149,8 +166,8 @@ List<Phase> exercisePhases(Exercise exercise, [int exerciseIndex = 0]) {
         case TempoExercise e:
           add(PhaseKind.move, 'Move', e.moveSeconds, set, rep, before);
           add(PhaseKind.tempoHold, 'Hold', e.holdSeconds, set, rep, before);
-          add(PhaseKind.back, 'Back', e.returnSeconds, set, rep, before,
-              endsRep: true);
+          add(PhaseKind.back, 'Back', e.returnSeconds, set, rep, before);
+          endRep(repStart);
       }
     }
     if (set < exercise.sets) {

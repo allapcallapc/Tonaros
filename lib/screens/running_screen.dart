@@ -22,13 +22,21 @@ class RunningScreen extends StatefulWidget {
 
   @override
   State<RunningScreen> createState() => _RunningScreenState();
+
+  /// Opens the running screen for [session] (if it has any exercises).
+  static void open(BuildContext context, Session session) {
+    if (session.exercises.isEmpty) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => RunningScreen(session: session)),
+    );
+  }
 }
 
 class _RunningScreenState extends State<RunningScreen>
     with WidgetsBindingObserver {
   late final SessionRunner _runner =
       SessionRunner(widget.session, clock: widget.clock);
-  bool _stoppedEarly = false;
 
   @override
   void initState() {
@@ -60,7 +68,7 @@ class _RunningScreenState extends State<RunningScreen>
         MaterialPageRoute(
           builder: (_) => SummaryScreen(
             sessionName: widget.session.name,
-            completed: !_stoppedEarly,
+            completed: _runner.completed,
             reps: _runner.repsDone,
             holds: _runner.holdsDone,
             time: _runner.activeTime,
@@ -83,7 +91,6 @@ class _RunningScreenState extends State<RunningScreen>
     );
     if (!mounted) return;
     if (stop) {
-      _stoppedEarly = true;
       _runner.stop();
     } else if (wasRunning) {
       _runner.resume();
@@ -218,14 +225,32 @@ class _LiveTimerState extends State<_LiveTimer>
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker((_) {
-      if (widget.runner.status == RunnerStatus.running) setState(() {});
-    })
-      ..start();
+    // Repaint every frame only while the clock runs: a started ticker
+    // schedules a frame every vsync, paused or not.
+    _ticker = createTicker((_) => setState(() {}));
+    widget.runner.addListener(_syncTicker);
+    _syncTicker();
+  }
+
+  @override
+  void didUpdateWidget(_LiveTimer old) {
+    super.didUpdateWidget(old);
+    if (old.runner != widget.runner) {
+      old.runner.removeListener(_syncTicker);
+      widget.runner.addListener(_syncTicker);
+      _syncTicker();
+    }
+  }
+
+  void _syncTicker() {
+    final running = widget.runner.status == RunnerStatus.running;
+    if (running && !_ticker.isActive) _ticker.start();
+    if (!running && _ticker.isActive) _ticker.stop();
   }
 
   @override
   void dispose() {
+    widget.runner.removeListener(_syncTicker);
     _ticker.dispose();
     super.dispose();
   }
@@ -361,8 +386,15 @@ class _NextUp extends StatelessWidget {
       dot = PhaseColors.of(next.kind);
     } else if (between(next.kind) ||
         next.exerciseIndex != runner.phase.exerciseIndex) {
-      // Last phase of this exercise.
-      text = 'Next: ${exercises[runner.phase.exerciseIndex + 1].name}';
+      // Last phase of this exercise: name the next exercise, past any
+      // transition.
+      final first = runner.plan
+          .skip(runner.index + 1)
+          .firstWhere((p) => !between(p.kind), orElse: () => next);
+      text = 'Next: ${exercises[first.exerciseIndex].name}';
+      dot = PhaseColors.of(next.kind);
+    } else if (next.waitsForTap) {
+      text = 'Next: ${next.label} (tap)';
       dot = PhaseColors.of(next.kind);
     } else {
       text = 'Next: ${next.label} · ${next.seconds} s';

@@ -4,6 +4,7 @@ import '../app_scope.dart';
 import '../models/session.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/exercise_summary.dart';
+import 'running_screen.dart';
 import 'session_editor_screen.dart';
 import 'settings_screen.dart';
 
@@ -103,7 +104,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
             itemBuilder: (context, i) => _SessionCard(
               session: sessions[i],
               onTap: () => _open(sessions[i]),
-              onStart: () => startSession(context, sessions[i]),
+              onStart: () => RunningScreen.open(context, sessions[i]),
               onRename: () => _rename(sessions[i]),
               onDuplicate: () => store.duplicate(sessions[i]),
               onDelete: () => _delete(sessions[i]),

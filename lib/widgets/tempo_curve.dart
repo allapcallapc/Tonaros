@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/phase_colors.dart';
@@ -207,9 +208,5 @@ class _TempoCurvePainter extends CustomPainter {
       old.labelStyle != labelStyle ||
       old.baselineColor != baselineColor ||
       old.markerFill != markerFill ||
-      !_listEquals(old.seconds, seconds);
-
-  static bool _listEquals(List<int> a, List<int> b) =>
-      a.length == b.length &&
-      Iterable<int>.generate(a.length).every((i) => a[i] == b[i]);
+      !listEquals(old.seconds, seconds);
 }

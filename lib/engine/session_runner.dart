@@ -77,6 +77,14 @@ class SessionRunner extends ChangeNotifier {
   int _lastSecondsLeft = -1;
   Timer? _timer;
 
+  /// True once the last phase ended on its own - not skipped past or
+  /// stopped.
+  bool get completed => _completed;
+  bool _completed = false;
+
+  /// Set when a phase was skipped to while paused: [resume] announces it.
+  bool _announceOnResume = false;
+
   int holdsDone = 0;
   int repsDone = 0;
 
@@ -98,6 +106,8 @@ class SessionRunner extends ChangeNotifier {
       _activeBefore +
       (_runningSince == null ? Duration.zero : _clock().difference(_runningSince!));
 
+  /// Starts with the get-ready phase. Subscribe to [events] before calling
+  /// this: its first [PhaseStarted] is sent synchronously, from here.
   void start() {
     if (_started || plan.isEmpty) return;
     _started = true;
@@ -119,6 +129,11 @@ class SessionRunner extends ChangeNotifier {
     _phaseEnd = now.add(_remainingWhenPaused);
     _runningSince = now;
     _status = RunnerStatus.running;
+    if (_announceOnResume) {
+      // Skipped while paused: announce the phase now that it runs.
+      _announceOnResume = false;
+      _events.add(PhaseStarted(phase, skipped: true));
+    }
     notifyListeners();
   }
 
@@ -162,6 +177,7 @@ class SessionRunner extends ChangeNotifier {
       _completePhase(phase);
       final boundary = _phaseEnd!;
       if (_index + 1 >= plan.length) {
+        _completed = true;
         _finish(announce: true, at: boundary);
         return;
       }
@@ -184,18 +200,26 @@ class SessionRunner extends ChangeNotifier {
 
   void _moveTo(int index, {required bool skipped}) {
     if (index >= plan.length) {
-      _finish(announce: true);
+      // Skipped past the end: stopped early, no "finished" fanfare.
+      _finish(announce: false);
       return;
     }
     final wasPaused = _status == RunnerStatus.paused;
+    _announceOnResume = false;
     _index = index;
     final now = _clock();
     if (wasPaused) {
       // Stay paused, at the start of the new phase.
       _remainingWhenPaused = Duration(seconds: phase.seconds);
-      if (phase.waitsForTap) _status = RunnerStatus.waitingForTap;
       _lastSecondsLeft = secondsLeft;
-      _events.add(PhaseStarted(phase, skipped: skipped));
+      if (phase.waitsForTap) {
+        // Nothing to resume: wait for the tap straight away.
+        _status = RunnerStatus.waitingForTap;
+        _events.add(PhaseStarted(phase, skipped: skipped));
+      } else {
+        // No cue while paused; resume() announces the phase.
+        _announceOnResume = true;
+      }
       notifyListeners();
     } else {
       _startPhase(now, announce: true, skipped: skipped);
