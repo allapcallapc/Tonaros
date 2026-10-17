@@ -10,20 +10,40 @@ import '../models/session.dart';
 class SessionStore extends ChangeNotifier {
   SessionStore(this._prefs) {
     final raw = _prefs.getString(_key);
-    if (raw != null) {
+    if (raw == null) return;
+    // Never crash on launch over unreadable data. Each session is read on
+    // its own so one bad record doesn't lose the rest; whatever couldn't be
+    // read is moved to a backup key.
+    List<Object?> entries;
+    try {
+      entries = jsonDecode(raw) as List;
+    } on Object catch (e) {
+      debugPrint('SessionStore: could not read saved sessions: $e');
+      _quarantine(raw);
+      return;
+    }
+    final unreadable = <Object?>[];
+    for (final entry in entries) {
       try {
-        _sessions = [
-          for (final s in jsonDecode(raw) as List)
-            Session.fromJson(s as Map<String, dynamic>),
-        ];
+        _sessions.add(Session.fromJson(entry as Map<String, dynamic>));
       } on Object catch (e) {
-        // Never crash on launch over unreadable data; start empty but keep
-        // the raw value around so it isn't silently overwritten.
-        debugPrint('SessionStore: could not read saved sessions: $e');
-        _prefs.setString('$_key.corrupt', raw);
+        debugPrint('SessionStore: skipping an unreadable session: $e');
+        unreadable.add(entry);
       }
     }
+    if (unreadable.isNotEmpty) _quarantine(jsonEncode(unreadable));
   }
+
+  /// Keeps [unreadable] under its own timestamped key (so a later problem
+  /// never replaces an earlier backup), then saves only the readable
+  /// sessions so the same data isn't backed up again on every launch.
+  void _quarantine(String unreadable) {
+    _prefs.setString(
+        '$_key.corrupt.${DateTime.now().millisecondsSinceEpoch}', unreadable);
+    _prefs.setString(_key, _encode());
+  }
+
+  String _encode() => jsonEncode([for (final s in _sessions) s.toJson()]);
 
   static const _key = 'sessions';
 
@@ -69,9 +89,6 @@ class SessionStore extends ChangeNotifier {
 
   Future<void> _save() async {
     notifyListeners();
-    await _prefs.setString(
-      _key,
-      jsonEncode([for (final s in _sessions) s.toJson()]),
-    );
+    await _prefs.setString(_key, _encode());
   }
 }

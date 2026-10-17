@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tonaros/models/session.dart';
@@ -59,10 +61,37 @@ void main() {
     expect(s.sessions, isEmpty);
   });
 
+  Iterable<String> backups(SharedPreferences prefs) => [
+        for (final k in prefs.getKeys())
+          if (k.startsWith('sessions.corrupt.')) prefs.getString(k)!,
+      ];
+
   test('unreadable saved data starts empty and keeps a backup', () async {
     final s = await store({'sessions': 'not json'});
     expect(s.sessions, isEmpty);
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString('sessions.corrupt'), 'not json');
+    expect(backups(prefs), ['not json']);
+
+    // Backed up once, not again on every launch.
+    SessionStore(prefs);
+    expect(backups(prefs), hasLength(1));
+  });
+
+  test('one unreadable session does not lose the others', () async {
+    final good = Session(id: 'a', name: 'Good', exercises: [
+      HoldExercise.blank(),
+    ]);
+    const bad = {'id': 'b', 'name': 'Bad', 'exercises': 'nope'};
+    final s = await store({
+      'sessions': jsonEncode([good.toJson(), bad]),
+    });
+
+    expect(s.sessions.map((x) => x.name), ['Good']);
+    final prefs = await SharedPreferences.getInstance();
+    expect(backups(prefs).map(jsonDecode), [
+      [bad],
+    ]);
+    expect(SessionStore(prefs).sessions.map((x) => x.name), ['Good']);
+    expect(backups(prefs), hasLength(1));
   });
 }

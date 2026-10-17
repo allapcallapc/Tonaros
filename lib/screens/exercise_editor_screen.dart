@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../engine/session_plan.dart';
 import '../models/session.dart';
+import '../widgets/dialogs.dart';
 import '../widgets/number_stepper.dart';
 
 /// Edits a copy of an exercise; pops with the result on Save, or null.
@@ -63,27 +66,56 @@ class _ExerciseEditorScreenState extends State<ExerciseEditorScreen> {
     ));
   }
 
-  void _save() {
-    String orDefault(TextEditingController c, String fallback) =>
-        c.text.trim().isEmpty ? fallback : c.text.trim();
+  /// The exercise as currently entered; blank names get a default only
+  /// [withDefaults].
+  Exercise _entered({required bool withDefaults}) {
+    String text(TextEditingController c, String fallback) {
+      final t = c.text.trim();
+      return t.isEmpty && withDefaults ? fallback : t;
+    }
+
     var result = _exercise.copyWithCommon(
-      name: orDefault(
+      name: text(
           _name, _exercise is TempoExercise ? 'Tempo exercise' : 'Hold exercise'),
     );
     if (result is HoldExercise) {
       result = result.copyWith(
-        firstHoldName: orDefault(_firstHoldName, 'Left'),
-        secondHoldName: orDefault(_secondHoldName, 'Right'),
+        firstHoldName: text(_firstHoldName, 'Left'),
+        secondHoldName: text(_secondHoldName, 'Right'),
       );
     }
-    Navigator.pop(context, result);
+    return result;
+  }
+
+  void _save() => Navigator.pop(context, _entered(withDefaults: true));
+
+  bool get _hasChanges =>
+      jsonEncode(_entered(withDefaults: false).toJson()) !=
+      jsonEncode(widget.exercise.toJson());
+
+  /// Back (app bar or system) asks before throwing away unsaved changes.
+  Future<void> _onPop(bool didPop, Object? _) async {
+    if (didPop) return;
+    final discard = !_hasChanges ||
+        await showConfirmDialog(
+          context,
+          title: 'Discard changes?',
+          message: widget.isNew
+              ? 'This exercise will not be added.'
+              : 'Your changes to this exercise will be lost.',
+          confirmLabel: 'Discard',
+        );
+    if (discard && mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     final e = _exercise;
     final textTheme = Theme.of(context).textTheme;
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: _onPop,
+      child: Scaffold(
       appBar: AppBar(
         title: Text(widget.isNew ? 'New exercise' : 'Edit exercise'),
         actions: [
@@ -182,6 +214,7 @@ class _ExerciseEditorScreenState extends State<ExerciseEditorScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

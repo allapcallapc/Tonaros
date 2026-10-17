@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_scope.dart';
 import '../models/session.dart';
+import '../services/session_store.dart';
 import '../theme/phase_colors.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/exercise_summary.dart';
@@ -35,10 +36,26 @@ class _SessionEditor extends StatelessWidget {
 
   final Session session;
 
-  void _save(BuildContext context, List<Exercise> exercises) =>
-      AppScope.of(context)
-          .sessions
-          .update(session.copyWith(exercises: exercises));
+  SessionStore _store(BuildContext context) => AppScope.of(context).sessions;
+
+  /// Applies [change] to the session as it is in [store] now, not to the
+  /// [session] this widget was built with: a dialog or route may have been
+  /// open in between, and other changes (an Undo) may have landed meanwhile.
+  static void _change(
+    SessionStore store,
+    String sessionId,
+    Session Function(Session current) change,
+  ) {
+    final current = store.byId(sessionId);
+    if (current != null) store.update(change(current));
+  }
+
+  void _changeExercises(
+    BuildContext context,
+    List<Exercise> Function(List<Exercise> current) change,
+  ) =>
+      _change(_store(context), session.id,
+          (s) => s.copyWith(exercises: change([...s.exercises])));
 
   Future<void> _rename(BuildContext context) async {
     final name = await showTextInputDialog(
@@ -48,7 +65,7 @@ class _SessionEditor extends StatelessWidget {
       confirmLabel: 'Rename',
     );
     if (name != null && context.mounted) {
-      await AppScope.of(context).sessions.update(session.copyWith(name: name));
+      _change(_store(context), session.id, (s) => s.copyWith(name: name));
     }
   }
 
@@ -88,7 +105,7 @@ class _SessionEditor extends StatelessWidget {
       ),
     );
     if (created != null && context.mounted) {
-      _save(context, [...session.exercises, created]);
+      _changeExercises(context, (list) => list..add(created));
     }
   }
 
@@ -100,38 +117,45 @@ class _SessionEditor extends StatelessWidget {
             ExerciseEditorScreen(exercise: session.exercises[index]),
       ),
     );
+    // Matched by id: the exercise may have moved since the editor opened.
     if (edited != null && context.mounted) {
-      _save(context, [...session.exercises]..[index] = edited);
+      _changeExercises(context, (list) => [
+            for (final e in list) e.id == edited.id ? edited : e,
+          ]);
     }
   }
 
   void _duplicate(BuildContext context, int index) {
     final e = session.exercises[index];
-    _save(context,
-        [...session.exercises]..insert(index + 1, e.copyWithCommon(id: newId())));
+    _changeExercises(context,
+        (list) => list..insert(index + 1, e.copyWithCommon(id: newId())));
   }
 
   void _remove(BuildContext context, int index) {
     final removed = session.exercises[index];
-    final store = AppScope.of(context).sessions;
-    final before = session;
-    _save(context, [...session.exercises]..removeAt(index));
+    final store = _store(context);
+    _changeExercises(context, (list) => list..removeAt(index));
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
         content: Text('Removed "${removed.name}"'),
         action: SnackBarAction(
           label: 'Undo',
-          onPressed: () => store.update(before),
+          // Puts back just this exercise, keeping anything changed since.
+          onPressed: () => _change(store, session.id, (s) {
+            if (s.exercises.any((e) => e.id == removed.id)) return s;
+            final list = [...s.exercises];
+            return s.copyWith(
+                exercises: list..insert(index.clamp(0, list.length), removed));
+          }),
         ),
       ));
   }
 
   void _reorder(BuildContext context, int oldIndex, int newIndex) {
     if (newIndex > oldIndex) newIndex--;
-    final list = [...session.exercises];
-    list.insert(newIndex, list.removeAt(oldIndex));
-    _save(context, list);
+    _changeExercises(
+        context, (list) => list..insert(newIndex, list.removeAt(oldIndex)));
   }
 
   Future<void> _editTransition(BuildContext context, int index) async {
@@ -142,8 +166,10 @@ class _SessionEditor extends StatelessWidget {
       builder: (_) => _TransitionSheet(initial: e.transition),
     );
     if (result != null && context.mounted) {
-      _save(context,
-          [...session.exercises]..[index] = e.copyWithCommon(transition: result));
+      _changeExercises(context, (list) => [
+            for (final x in list)
+              x.id == e.id ? x.copyWithCommon(transition: result) : x,
+          ]);
     }
   }
 

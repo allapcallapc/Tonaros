@@ -106,6 +106,69 @@ void main() {
     expect(store.sessions.single.exercises.map((e) => e.name), ['A', 'B']);
   });
 
+  testWidgets('undo puts back only the removed exercise', (tester) async {
+    final store = await pumpApp(tester);
+    final s = await store.create('S');
+    await store.update(s.copyWith(exercises: [
+      HoldExercise.blank().copyWith(name: 'A'),
+      HoldExercise.blank().copyWith(name: 'B'),
+    ]));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('S'));
+    await tester.pumpAndSettle();
+
+    await openMenu(tester, 'Remove');
+    // A change made while the Undo snackbar is still up survives the undo.
+    await tester.tap(find.byTooltip('Rename'));
+    await tester.pumpAndSettle();
+    await enterDialogText(tester, 'Renamed', 'Rename');
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+    final session = store.sessions.single;
+    expect(session.name, 'Renamed');
+    expect(session.exercises.map((e) => e.name), ['A', 'B']);
+  });
+
+  testWidgets('leaving the exercise editor asks before discarding changes',
+      (tester) async {
+    final store = await pumpApp(tester);
+    final s = await store.create('S');
+    await store.update(s.copyWith(exercises: [
+      HoldExercise.blank().copyWith(name: 'A'),
+    ]));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('S'));
+    await tester.pumpAndSettle();
+
+    // No changes: back leaves straight away.
+    await tester.tap(find.text('A'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard changes?'), findsNothing);
+    expect(find.text('Edit exercise'), findsNothing);
+
+    await tester.tap(find.text('A'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Decrease Reps'));
+    await tester.pump();
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard changes?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit exercise'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit exercise'), findsNothing);
+    expect(store.sessions.single.exercises.single.reps, 10);
+  });
+
   testWidgets('rename, duplicate and delete sessions from the list',
       (tester) async {
     final store = await pumpApp(tester);
