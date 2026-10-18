@@ -12,6 +12,7 @@ import '../theme/phase_colors.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/phase_ring.dart';
 import '../widgets/rep_dots.dart';
+import '../widgets/session_progress_bar.dart';
 import '../widgets/tempo_curve.dart';
 import 'summary_screen.dart';
 
@@ -173,6 +174,10 @@ class _RunningScreenState extends State<RunningScreen>
               vibrationAvailable: _cueOutput.vibrationAvailable,
             ),
           ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(3),
+            child: _LiveProgressBar(runner: runner),
+          ),
         ),
         body: IgnorePointer(
           ignoring: finished,
@@ -411,6 +416,65 @@ class _LiveTimerState extends State<_LiveTimer>
       fractionLeft: waiting ? 1 : runner.fractionLeft,
       color: color,
       child: center,
+    );
+  }
+}
+
+/// The whole-session progress bar under the app bar, repainted every frame
+/// while running so it creeps along smoothly.
+class _LiveProgressBar extends StatefulWidget {
+  const _LiveProgressBar({required this.runner});
+
+  final SessionRunner runner;
+
+  @override
+  State<_LiveProgressBar> createState() => _LiveProgressBarState();
+}
+
+class _LiveProgressBarState extends State<_LiveProgressBar>
+    with SingleTickerProviderStateMixin {
+  // _LiveTimer already ticks the runner each frame; this only repaints.
+  late final Ticker _ticker = createTicker((_) {
+    if (mounted) setState(() {});
+  });
+
+  @override
+  void initState() {
+    super.initState();
+    widget.runner.addListener(_syncTicker);
+    _syncTicker();
+  }
+
+  @override
+  void didUpdateWidget(_LiveProgressBar old) {
+    super.didUpdateWidget(old);
+    if (old.runner != widget.runner) {
+      old.runner.removeListener(_syncTicker);
+      widget.runner.addListener(_syncTicker);
+      _syncTicker();
+    }
+  }
+
+  void _syncTicker() {
+    final running = widget.runner.status == RunnerStatus.running;
+    if (running && !_ticker.isActive) _ticker.start();
+    if (!running && _ticker.isActive) _ticker.stop();
+  }
+
+  @override
+  void dispose() {
+    widget.runner.removeListener(_syncTicker);
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final runner = widget.runner;
+    final color = PhaseColors.of(runner.phase.kind);
+    return SessionProgressBar(
+      progress: runner.sessionProgress,
+      color: runner.paused ? color.withValues(alpha: 0.4) : color,
     );
   }
 }
