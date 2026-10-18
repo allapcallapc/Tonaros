@@ -54,10 +54,21 @@ MonotonicClock stopwatchClock() {
 class SessionRunner extends ChangeNotifier {
   SessionRunner(this.session, {MonotonicClock? clock})
       : plan = buildPlan(session),
-        _clock = clock ?? stopwatchClock();
+        _clock = clock ?? stopwatchClock() {
+    var total = 0;
+    for (final p in plan) {
+      _secondsBefore.add(total);
+      total += p.seconds;
+    }
+    _totalSeconds = total;
+  }
 
   final Session session;
   final List<Phase> plan;
+
+  /// Planned seconds of the phases before each phase, and of the whole plan.
+  final List<int> _secondsBefore = [];
+  late final int _totalSeconds;
   final MonotonicClock _clock;
 
   final _events = StreamController<RunnerEvent>.broadcast(sync: true);
@@ -142,6 +153,16 @@ class SessionRunner extends ChangeNotifier {
   double get fractionLeft => phase.seconds == 0
       ? 1
       : (remaining.inMilliseconds / (phase.seconds * 1000)).clamp(0.0, 1.0);
+
+  /// How far through the session's planned time we are: 0 at the start, 1
+  /// once completed. Skipping jumps ahead; "wait until tap" phases take none.
+  double get sessionProgress {
+    if (_completed) return 1;
+    if (_totalSeconds == 0) return 0;
+    final done = _secondsBefore[_index] * 1000 +
+        phase.seconds * 1000 * (1 - fractionLeft);
+    return (done / (_totalSeconds * 1000)).clamp(0.0, 1.0);
+  }
 
   Duration get activeTime =>
       _activeBefore +

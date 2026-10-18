@@ -309,4 +309,34 @@ void main() {
     runner.skipExercise();
     expect(runner.exercise.name, 'C');
   });
+
+  test('session progress follows planned time and ends at 1', () {
+    setUpRunner(sampleSession());
+    final total = runner.plan.fold<int>(0, (sum, p) => sum + p.seconds);
+    runner.start();
+    expect(runner.sessionProgress, 0);
+
+    elapse(1.5);
+    expect(runner.sessionProgress, closeTo(1.5 / total, 1e-9));
+
+    runner.pause();
+    clock.advance(20); // paused time doesn't count
+    expect(runner.sessionProgress, closeTo(1.5 / total, 1e-9));
+    runner.resume();
+
+    elapse(total - 1.5 - 0.5);
+    expect(runner.sessionProgress, closeTo((total - 0.5) / total, 1e-9));
+
+    elapse(1);
+    expect(runner.status, RunnerStatus.finished);
+    expect(runner.sessionProgress, 1);
+  });
+
+  test('stopping early keeps session progress short of 1', () {
+    setUpRunner(sampleSession());
+    runner.start();
+    elapse(1);
+    runner.stop();
+    expect(runner.sessionProgress, lessThan(1));
+  });
 }
