@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/allapcallapc/Tonaros/compare/v0.4.0...v0.5.0) (2026-10-18)
+
+
+### Features
+
+* subtle whole-session progress bar on the running screen ([#12](https://github.com/allapcallapc/Tonaros/issues/12)) ([1777779](https://github.com/allapcallapc/Tonaros/commit/17777793b3a4fb723b388cdb6bac2e44a02f01af))
+
 ## [0.4.0](https://github.com/allapcallapc/Tonaros/compare/v0.3.0...v0.4.0) (2026-10-18)
 
 
