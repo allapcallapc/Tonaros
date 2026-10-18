@@ -65,7 +65,12 @@ class _BarPainter extends CustomPainter {
       fill,
       Paint()
         ..shader = LinearGradient(
-          colors: [color.withValues(alpha: 0.25), color.withValues(alpha: 0.8)],
+          // Scale rather than replace the alpha, so a dimmed color stays
+          // dimmed.
+          colors: [
+            color.withValues(alpha: color.a * 0.25),
+            color.withValues(alpha: color.a * 0.8),
+          ],
         ).createShader(Rect.fromLTWH(0, 0, width, size.height)),
     );
   }

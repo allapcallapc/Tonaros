@@ -154,15 +154,21 @@ class SessionRunner extends ChangeNotifier {
       ? 1
       : (remaining.inMilliseconds / (phase.seconds * 1000)).clamp(0.0, 1.0);
 
-  /// How far through the session's planned time we are: 0 at the start, 1
-  /// once completed. Skipping jumps ahead; "wait until tap" phases take none.
+  /// How far through the session's planned time we are: 0 until started, 1
+  /// once completed, and held where it was when stopped early. Skipping
+  /// jumps ahead; "wait until tap" phases take none.
   double get sessionProgress {
     if (_completed) return 1;
-    if (_totalSeconds == 0) return 0;
+    if (_progressAtStop != null) return _progressAtStop!;
+    if (!_started || _totalSeconds == 0) return 0;
     final done = _secondsBefore[_index] * 1000 +
         phase.seconds * 1000 * (1 - fractionLeft);
     return (done / (_totalSeconds * 1000)).clamp(0.0, 1.0);
   }
+
+  /// [sessionProgress] when stopped early (once finished, [remaining] is 0
+  /// and would count the current phase as done).
+  double? _progressAtStop;
 
   Duration get activeTime =>
       _activeBefore +
@@ -337,6 +343,7 @@ class SessionRunner extends ChangeNotifier {
   }
 
   void _finish({required bool announce, Duration? at}) {
+    if (!_completed) _progressAtStop = sessionProgress;
     _stopActiveClock(at);
     _setStatus(RunnerStatus.finished);
     if (announce) _events.add(const SessionFinished());

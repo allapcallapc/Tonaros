@@ -332,11 +332,52 @@ void main() {
     expect(runner.sessionProgress, 1);
   });
 
-  test('stopping early keeps session progress short of 1', () {
+  test('session progress is 0 before start', () {
+    setUpRunner(sampleSession());
+    expect(runner.sessionProgress, 0);
+  });
+
+  test('stopping early holds session progress where it was', () {
     setUpRunner(sampleSession());
     runner.start();
     elapse(1);
+    final before = runner.sessionProgress;
     runner.stop();
+    expect(runner.sessionProgress, closeTo(before, 1e-9));
+  });
+
+  test('stopping partway through the last phase does not jump to 1', () {
+    setUpRunner(sampleSession());
+    final total = runner.plan.fold<int>(0, (sum, p) => sum + p.seconds);
+    runner.start();
+    elapse(total - 1); // 1 s left, in the last phase
+    expect(runner.index, runner.plan.length - 1);
+    final before = runner.sessionProgress;
+    expect(before, closeTo((total - 1) / total, 1e-9));
+    runner.stop();
+    expect(runner.sessionProgress, closeTo(before, 1e-9));
+  });
+
+  test('stopping while paused holds session progress too', () {
+    setUpRunner(sampleSession());
+    final total = runner.plan.fold<int>(0, (sum, p) => sum + p.seconds);
+    runner.start();
+    elapse(total - 1);
+    runner.pause();
+    runner.stop();
+    expect(runner.sessionProgress, closeTo((total - 1) / total, 1e-9));
+  });
+
+  test('skipping past the end holds session progress', () {
+    setUpRunner(sampleSession());
+    runner.start();
+    elapse(1);
+    final before = runner.sessionProgress;
+    runner.skipExercise();
+    runner.skipExercise();
+    expect(runner.status, RunnerStatus.finished);
+    expect(runner.completed, isFalse);
     expect(runner.sessionProgress, lessThan(1));
+    expect(runner.sessionProgress, greaterThanOrEqualTo(before));
   });
 }
