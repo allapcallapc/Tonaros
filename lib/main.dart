@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app_scope.dart';
 import 'config/app_config.dart';
 import 'screens/sessions_screen.dart';
+import 'services/cues.dart';
 import 'services/session_store.dart';
 import 'services/settings_store.dart';
 import 'services/update_controller.dart';
@@ -15,6 +16,8 @@ Future<void> main() async {
     sessions: SessionStore(prefs),
     settings: SettingsStore(prefs),
     updates: UpdateController(),
+    // Preloads the cue sounds at launch, ready for the first session.
+    cues: DeviceCueOutput(),
   ));
 }
 
@@ -49,11 +52,13 @@ class TonarosApp extends StatelessWidget {
     required this.sessions,
     required this.settings,
     required this.updates,
+    required this.cues,
   });
 
   final SessionStore sessions;
   final SettingsStore settings;
   final UpdateController updates;
+  final CueOutput cues;
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +66,7 @@ class TonarosApp extends StatelessWidget {
       sessions: sessions,
       settings: settings,
       updates: updates,
+      cues: cues,
       child: ListenableBuilder(
         listenable: settings,
         builder: (context, _) => MaterialApp(
