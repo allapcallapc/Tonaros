@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/allapcallapc/Tonaros/compare/v0.3.0...v0.4.0) (2026-10-18)
+
+
+### Features
+
+* run sessions with a draining ring timer ([#6](https://github.com/allapcallapc/Tonaros/issues/6)) ([c611dff](https://github.com/allapcallapc/Tonaros/commit/c611dffbf4da6dfbb2c74309138db216833f4293))
+* sound and vibration cues, keep screen awake ([#7](https://github.com/allapcallapc/Tonaros/issues/7)) ([19cf95b](https://github.com/allapcallapc/Tonaros/commit/19cf95b3d01c03f97aa69d8748ba4198a24dddef))
+
 ## [0.3.0](https://github.com/allapcallapc/Tonaros/compare/v0.2.0...v0.3.0) (2026-10-17)
 
 
