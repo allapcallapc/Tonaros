@@ -158,6 +158,20 @@ void main() {
     expect(find.text('Session stopped'), findsOneWidget);
   });
 
+  testWidgets('can go back to an exercise skipped by mistake',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await elapse(tester, 3);
+    await tester.tap(find.byTooltip('Skip exercise'));
+    await tester.pump();
+    expect(find.text('MOVE'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Previous exercise'));
+    await tester.pump();
+    expect(find.text('MOVE'), findsNothing);
+    expect(find.text('Rep 1/2'), findsOneWidget);
+  });
+
   testWidgets('next-up names a tap set rest and the next exercise',
       (tester) async {
     await pumpRunning(

@@ -563,10 +563,33 @@ class _Controls extends StatelessWidget {
   Widget build(BuildContext context) {
     final waiting = runner.status == RunnerStatus.waitingForTap;
     final running = runner.status == RunnerStatus.running;
+    // Spread over the full width, but scaled down rather than overflowing
+    // on narrow screens.
+    return LayoutBuilder(
+      builder: (context, constraints) => FittedBox(
+        fit: BoxFit.scaleDown,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: constraints.maxWidth),
+          child: _row(context, waiting: waiting, running: running),
+        ),
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context,
+      {required bool waiting, required bool running}) {
     const big = Size(88, 88);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
+        _SideButton(
+          icon: Icons.fast_rewind,
+          label: runner.previousRestarts ? 'Restart' : 'Previous',
+          tooltip: runner.previousRestarts
+              ? 'Restart exercise'
+              : 'Previous exercise',
+          onPressed: runner.canGoBack ? runner.previousExercise : null,
+        ),
         _SideButton(
           icon: Icons.skip_next,
           label: 'Skip phase',
@@ -611,10 +634,14 @@ class _SideButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.tooltip,
   });
 
   final IconData icon;
   final String label;
+
+  /// Defaults to [label].
+  final String? tooltip;
   final VoidCallback? onPressed;
 
   @override
@@ -623,7 +650,7 @@ class _SideButton extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton.filledTonal(
-          tooltip: label,
+          tooltip: tooltip ?? label,
           iconSize: 32,
           style: IconButton.styleFrom(minimumSize: const Size(64, 64)),
           onPressed: onPressed,
