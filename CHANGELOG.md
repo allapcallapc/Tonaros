@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/allapcallapc/Tonaros/compare/v0.5.0...v0.6.0) (2026-10-23)
+
+
+### Features
+
+* go back to the previous exercise while running a session ([#14](https://github.com/allapcallapc/Tonaros/issues/14)) ([e991320](https://github.com/allapcallapc/Tonaros/commit/e991320f5a9458551d658dc14652d9fdadd09f51))
+
 ## [0.5.0](https://github.com/allapcallapc/Tonaros/compare/v0.4.0...v0.5.0) (2026-10-18)
 
 
