@@ -234,6 +234,46 @@ class SessionRunner extends ChangeNotifier {
     _moveTo(next, skipped: true);
   }
 
+  /// Goes back to the start of the exercise on screen
+  /// ([displayExerciseIndex]) if it's past its first phase, otherwise to the
+  /// start of the one before it - e.g. to redo an exercise skipped by
+  /// mistake. Does nothing when [canGoBack] is false.
+  void previousExercise() {
+    if (!_started || _status == RunnerStatus.finished || !canGoBack) return;
+    _moveTo(
+      previousRestarts
+          ? _exerciseStart(displayExerciseIndex)
+          : _previousStart()!,
+      skipped: true,
+    );
+  }
+
+  /// Whether [previousExercise] would restart this exercise (rather than go
+  /// to the previous one).
+  bool get previousRestarts {
+    final start = _exerciseStart(displayExerciseIndex);
+    return start >= 0 && _index > start;
+  }
+
+  /// False before the first exercise has got past its first phase.
+  bool get canGoBack => previousRestarts || _previousStart() != null;
+
+  /// Where the exercise before the one on screen starts, if there is one.
+  int? _previousStart() {
+    for (var i = displayExerciseIndex - 1; i >= 0; i--) {
+      final start = _exerciseStart(i);
+      if (start >= 0) return start;
+    }
+    return null;
+  }
+
+  /// Index in [plan] of the first phase of exercise [exerciseIndex].
+  int _exerciseStart(int exerciseIndex) => plan.indexWhere((p) =>
+      p.exerciseIndex == exerciseIndex &&
+      p.kind != PhaseKind.getReady &&
+      p.kind != PhaseKind.transition &&
+      p.kind != PhaseKind.waitForTap);
+
   /// Ends the session early.
   void stop() {
     if (_status == RunnerStatus.finished) return;

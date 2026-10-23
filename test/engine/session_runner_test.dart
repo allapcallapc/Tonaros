@@ -310,6 +310,59 @@ void main() {
     expect(runner.exercise.name, 'C');
   });
 
+  test('previous exercise restarts this one, then goes to the one before',
+      () {
+    setUpRunner(sampleSession());
+    runner.start();
+    // Nothing to go back to during get ready or A's first phase.
+    expect(runner.canGoBack, isFalse);
+    elapse(3);
+    expect(runner.canGoBack, isFalse);
+
+    elapse(6); // in the rest after A's first hold
+    expect(runner.phase.kind, PhaseKind.rest);
+    expect(runner.previousRestarts, isTrue);
+    runner.previousExercise();
+    expect(runner.phase.kind, PhaseKind.hold1);
+    expect(runner.phase.rep, 1);
+    expect(runner.secondsLeft, 5);
+    expect(runner.status, RunnerStatus.running);
+
+    // Skipped B by mistake: come back to it.
+    runner.skipExercise();
+    expect(runner.exercise.name, 'B');
+    runner.previousExercise();
+    expect(runner.exercise.name, 'A');
+    expect(runner.phase.kind, PhaseKind.hold1);
+
+    // From the transition (showing B), back goes to the start of A.
+    elapse(13 + 1);
+    expect(runner.phase.kind, PhaseKind.transition);
+    expect(runner.previousRestarts, isFalse);
+    runner.previousExercise();
+    expect(runner.exercise.name, 'A');
+    expect(runner.phase.kind, PhaseKind.hold1);
+  });
+
+  test('previous exercise works from a tap transition and while paused', () {
+    setUpRunner(sampleSession(transition: const Transition.tap()));
+    runner.start();
+    elapse(3 + 13);
+    expect(runner.status, RunnerStatus.waitingForTap);
+    runner.previousExercise();
+    expect(runner.status, RunnerStatus.running);
+    expect(runner.phase.kind, PhaseKind.hold1);
+
+    runner.skipExercise();
+    runner.skipPhase(); // B's move
+    runner.pause();
+    runner.previousExercise();
+    expect(runner.status, RunnerStatus.paused);
+    expect(runner.exercise.name, 'B');
+    expect(runner.phase.kind, PhaseKind.move);
+    expect(runner.secondsLeft, 2);
+  });
+
   test('session progress follows planned time and ends at 1', () {
     setUpRunner(sampleSession());
     final total = runner.plan.fold<int>(0, (sum, p) => sum + p.seconds);
