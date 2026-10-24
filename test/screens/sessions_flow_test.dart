@@ -187,4 +187,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.sessions.map((s) => s.name), ['Evening']);
   });
+
+  testWidgets('history from the app bar and from a session\'s menu',
+      (tester) async {
+    final store = await pumpApp(tester);
+    await tester.tap(find.byTooltip('History'));
+    await tester.pumpAndSettle();
+    expect(find.text('History'), findsOneWidget);
+    expect(find.text('No runs yet'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await store.create('Morning');
+    await tester.pumpAndSettle();
+    await openMenu(tester, 'History');
+    expect(find.text('History · Morning'), findsOneWidget);
+  });
 }

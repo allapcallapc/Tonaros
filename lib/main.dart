@@ -5,6 +5,7 @@ import 'app_scope.dart';
 import 'config/app_config.dart';
 import 'screens/sessions_screen.dart';
 import 'services/cues.dart';
+import 'services/history_store.dart';
 import 'services/session_store.dart';
 import 'services/settings_store.dart';
 import 'services/update_controller.dart';
@@ -14,6 +15,7 @@ Future<void> main() async {
   final prefs = await SharedPreferences.getInstance();
   runApp(TonarosApp(
     sessions: SessionStore(prefs),
+    history: HistoryStore(prefs),
     settings: SettingsStore(prefs),
     updates: UpdateController(),
     // Preloads the cue sounds at launch, ready for the first session.
@@ -50,12 +52,14 @@ class TonarosApp extends StatelessWidget {
   const TonarosApp({
     super.key,
     required this.sessions,
+    required this.history,
     required this.settings,
     required this.updates,
     required this.cues,
   });
 
   final SessionStore sessions;
+  final HistoryStore history;
   final SettingsStore settings;
   final UpdateController updates;
   final CueOutput cues;
@@ -64,6 +68,7 @@ class TonarosApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = AppScope(
       sessions: sessions,
+      history: history,
       settings: settings,
       updates: updates,
       cues: cues,

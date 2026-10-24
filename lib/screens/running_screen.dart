@@ -5,6 +5,7 @@ import 'package:flutter/scheduler.dart';
 import '../app_scope.dart';
 import '../engine/session_plan.dart';
 import '../engine/session_runner.dart';
+import '../models/history_entry.dart';
 import '../models/session.dart';
 import '../services/cues.dart';
 import '../services/settings_store.dart';
@@ -88,6 +89,7 @@ class _RunningScreenState extends State<RunningScreen>
 
   void _onRunnerChanged() {
     if (_runner.status == RunnerStatus.finished) {
+      _record();
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -103,6 +105,22 @@ class _RunningScreenState extends State<RunningScreen>
     } else {
       setState(() {});
     }
+  }
+
+  /// Adds this run to the history - unless it was stopped before a single
+  /// hold or rep was done (e.g. during "get ready"), which isn't a workout.
+  void _record() {
+    if (!_runner.completed && _runner.holdsDone == 0 && _runner.repsDone == 0) {
+      return;
+    }
+    AppScope.read(context).history.add(HistoryEntry.record(
+          session: widget.session,
+          endedAt: DateTime.now(),
+          completed: _runner.completed,
+          reps: _runner.repsDone,
+          holds: _runner.holdsDone,
+          activeTime: _runner.activeTime,
+        ));
   }
 
   /// Guards against a second "Stop session?" dialog (double tap on the

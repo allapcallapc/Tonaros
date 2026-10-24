@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tonaros/app_scope.dart';
 import 'package:tonaros/main.dart';
 import 'package:tonaros/services/cues.dart';
+import 'package:tonaros/services/history_store.dart';
 import 'package:tonaros/services/session_store.dart';
 import 'package:tonaros/services/settings_store.dart';
 import 'package:tonaros/services/update_controller.dart';
@@ -47,6 +48,7 @@ Future<SessionStore> pumpApp(
   final sessions = SessionStore(sharedPrefs);
   await tester.pumpWidget(TonarosApp(
     sessions: sessions,
+    history: HistoryStore(sharedPrefs),
     settings: SettingsStore(sharedPrefs),
     updates: UpdateController(updateService ?? FakeUpdateService(null)),
     cues: FakeCueOutput(),
@@ -81,6 +83,7 @@ Future<Widget> withAppScope(Widget child,
   final sharedPrefs = await SharedPreferences.getInstance();
   return AppScope(
     sessions: SessionStore(sharedPrefs),
+    history: HistoryStore(sharedPrefs),
     settings: SettingsStore(sharedPrefs),
     updates: UpdateController(FakeUpdateService(null)),
     cues: FakeCueOutput(),
