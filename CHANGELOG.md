@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/allapcallapc/Tonaros/compare/v0.6.0...v0.7.0) (2026-10-24)
+
+
+### Features
+
+* session history with streaks and a calendar ([#16](https://github.com/allapcallapc/Tonaros/issues/16)) ([6ce6c81](https://github.com/allapcallapc/Tonaros/commit/6ce6c81eee025d4f50310aac2d99217743727e96))
+
 ## [0.6.0](https://github.com/allapcallapc/Tonaros/compare/v0.5.0...v0.6.0) (2026-10-23)
 
 
