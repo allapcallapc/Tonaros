@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tonaros/app_scope.dart';
 import 'package:tonaros/models/session.dart';
 import 'package:tonaros/screens/running_screen.dart';
 import 'package:tonaros/screens/summary_screen.dart';
@@ -28,6 +29,7 @@ void main() {
                   RunningScreen(
                     session: session,
                     clock: () => clock.now,
+                    now: () => DateTime(2026, 3, 10, 9, 41),
                     cueOutput: cues,
                   ),
             ),
@@ -285,5 +287,51 @@ void main() {
     await tester.pump();
     expect(find.byTooltip('Turn off vibration'), findsNothing);
     expect(find.byTooltip('Mute sounds'), findsOneWidget);
+  });
+
+  testWidgets('a finished run is recorded in the history', (tester) async {
+    await pumpRunning(tester, sampleSession());
+    final history =
+        AppScope.read(tester.element(find.byType(RunningScreen))).history;
+    await elapse(tester, 3 + 13 + 10 + 5);
+    await tester.pump(const Duration(seconds: 1));
+
+    final entry = history.entries.single;
+    expect(entry.sessionId, 's');
+    expect(entry.sessionName, 'S');
+    expect(entry.completed, isTrue);
+    expect(entry.activeTime.inSeconds, 31);
+    expect(entry.endedAt, DateTime(2026, 3, 10, 9, 41));
+  });
+
+  testWidgets('a run stopped before anything was done is not recorded',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    final history =
+        AppScope.read(tester.element(find.byType(RunningScreen))).history;
+    await tester.tap(find.byTooltip('Stop'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('Stop').last);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(find.text('Session stopped'), findsOneWidget);
+    expect(history.entries, isEmpty);
+  });
+
+  testWidgets('a run stopped part way is recorded as stopped', (tester) async {
+    await pumpRunning(tester, sampleSession());
+    final history =
+        AppScope.read(tester.element(find.byType(RunningScreen))).history;
+    await elapse(tester, 9); // first hold done
+    await tester.tap(find.byTooltip('Stop'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('Stop').last);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    final entry = history.entries.single;
+    expect(entry.completed, isFalse);
+    expect((entry.reps, entry.holds), (1, 1));
   });
 }
