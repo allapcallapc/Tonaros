@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tonaros/app_scope.dart';
 import 'package:tonaros/main.dart';
+import 'package:tonaros/models/history_entry.dart';
 import 'package:tonaros/services/cues.dart';
 import 'package:tonaros/services/history_store.dart';
 import 'package:tonaros/services/session_store.dart';
@@ -90,3 +91,17 @@ Future<Widget> withAppScope(Widget child,
     child: child,
   );
 }
+
+/// A run of session [sessionId] that ended at [at].
+HistoryEntry run(DateTime at,
+        {bool completed = true, String sessionId = 's'}) =>
+    HistoryEntry(
+      id: '$sessionId${at.millisecondsSinceEpoch}',
+      sessionId: sessionId,
+      sessionName: 'S',
+      endedAt: at,
+      completed: completed,
+      reps: 1,
+      holds: 1,
+      activeTime: const Duration(seconds: 30),
+    );

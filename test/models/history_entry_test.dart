@@ -1,18 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tonaros/models/history_entry.dart';
 
-HistoryEntry run(DateTime at,
-        {bool completed = true, String sessionId = 's'}) =>
-    HistoryEntry(
-      id: '$sessionId${at.millisecondsSinceEpoch}',
-      sessionId: sessionId,
-      sessionName: 'S',
-      endedAt: at,
-      completed: completed,
-      reps: 1,
-      holds: 1,
-      activeTime: const Duration(seconds: 30),
-    );
+import '../test_app.dart' show run;
 
 void main() {
   final today = DateTime(2026, 3, 10, 18);
@@ -21,6 +10,9 @@ void main() {
     final entry = run(DateTime(2026, 3, 10, 9, 41), completed: false);
     final copy = HistoryEntry.fromJson(entry.toJson());
     expect(copy.endedAt, entry.endedAt);
+    // Wall-clock time, no zone: the run keeps its day and time if the
+    // device's time zone changes.
+    expect(entry.toJson()['endedAt'], '2026-03-10T09:41:00.000');
     expect(copy.completed, isFalse);
     expect(copy.activeTime, const Duration(seconds: 30));
     expect(copy.sessionName, 'S');
@@ -65,5 +57,14 @@ void main() {
       run(DateTime(2026, 3, 10)),
     ], today);
     expect(s.current, 2);
+  });
+
+  test('a run dated after today does not end the current streak', () {
+    final s = Streaks.of([
+      run(DateTime(2026, 3, 9)),
+      run(DateTime(2026, 3, 10)),
+      run(DateTime(2026, 3, 11)),
+    ], today);
+    expect((s.current, s.best), (2, 2));
   });
 }

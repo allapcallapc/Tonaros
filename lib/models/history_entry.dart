@@ -21,7 +21,9 @@ class HistoryEntry {
   /// The session's name at the time, kept even if it's renamed later.
   final String sessionName;
 
-  /// Local time the run ended; its day is the one it counts towards.
+  /// Local wall-clock time the run ended; its day is the one it counts
+  /// towards. Stored without a time zone, so a run keeps its day (and
+  /// time) if the device's time zone changes later.
   final DateTime endedAt;
 
   /// False when stopped early.
@@ -53,7 +55,7 @@ class HistoryEntry {
         id: json['id'] as String,
         sessionId: json['sessionId'] as String,
         sessionName: json['sessionName'] as String,
-        endedAt: DateTime.fromMillisecondsSinceEpoch(json['endedAt'] as int),
+        endedAt: DateTime.parse(json['endedAt'] as String),
         completed: json['completed'] as bool,
         reps: json['reps'] as int,
         holds: json['holds'] as int,
@@ -64,7 +66,9 @@ class HistoryEntry {
         'id': id,
         'sessionId': sessionId,
         'sessionName': sessionName,
-        'endedAt': endedAt.millisecondsSinceEpoch,
+        // No offset in a local DateTime's ISO string: parsed back as the
+        // same wall-clock time in whatever zone the device is in then.
+        'endedAt': endedAt.toLocal().toIso8601String(),
         'completed': completed,
         'reps': reps,
         'holds': holds,
@@ -85,7 +89,14 @@ class Streaks {
   final int best;
 
   factory Streaks.of(Iterable<HistoryEntry> entries, DateTime now) {
-    final days = {for (final e in entries) dayOf(e.endedAt)}.toList()..sort();
+    final today = dayOf(now);
+    // A run dated after today (the clock was wrong, or moved back since)
+    // would otherwise end every streak in the future and zero the current.
+    final days = {
+      for (final e in entries)
+        if (!dayOf(e.endedAt).isAfter(today)) dayOf(e.endedAt),
+    }.toList()
+      ..sort();
     var best = 0;
     var run = 0;
     DateTime? previous;
@@ -94,7 +105,6 @@ class Streaks {
       if (run > best) best = run;
       previous = day;
     }
-    final today = dayOf(now);
     final alive = previous != null &&
         (previous == today || _daysBetween(previous, today) == 1);
     return Streaks(current: alive ? run : 0, best: best);

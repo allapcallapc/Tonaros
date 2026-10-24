@@ -42,8 +42,41 @@ class _HistoryScreenState extends State<HistoryScreen> {
   /// First day of the month the calendar shows.
   late DateTime _month = DateTime(_now().year, _now().month);
 
-  /// When set, the list only shows this day's runs.
+  /// When set, the list only shows this day's runs. Cleared once it has
+  /// none left, or the calendar moves to another month.
   DateTime? _selectedDay;
+
+  /// The "Run deleted" snackbar while it's up. It's on the app-wide
+  /// messenger, so it's closed by hand where its Undo no longer makes
+  /// sense: after a clear, or on leaving this screen.
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _undoBar;
+
+  void _closeUndoBar() {
+    _undoBar?.close();
+    _undoBar = null;
+  }
+
+  @override
+  void dispose() {
+    // After this frame: closing rebuilds the messenger, which can't happen
+    // while the tree is being torn down.
+    final bar = _undoBar;
+    if (bar != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_undoBar == bar) bar.close();
+      });
+    }
+    super.dispose();
+  }
+
+  void _showMonth(DateTime month) => setState(() {
+        _month = month;
+        final day = _selectedDay;
+        if (day != null &&
+            (day.year != month.year || day.month != month.month)) {
+          _selectedDay = null;
+        }
+      });
 
   Future<void> _clear() async {
     final history = AppScope.of(context).history;
@@ -56,6 +89,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       confirmLabel: 'Clear',
     );
     if (confirmed && mounted) {
+      _closeUndoBar();
       await history.clear(sessionId: widget.sessionId);
       setState(() => _selectedDay = null);
     }
@@ -64,17 +98,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
   void _delete(HistoryEntry entry) {
     final history = AppScope.of(context).history;
     history.delete(entry.id);
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: const Text('Run deleted'),
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () => history.add(entry),
-          ),
-        ),
-      );
+    final day = _selectedDay;
+    if (day != null &&
+        !history
+            .entriesFor(widget.sessionId)
+            .any((e) => dayOf(e.endedAt) == day)) {
+      setState(() => _selectedDay = null);
+    }
+    final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+    final bar = _undoBar = messenger.showSnackBar(SnackBar(
+      content: const Text('Run deleted'),
+      action: SnackBarAction(
+        label: 'Undo',
+        onPressed: () => history.add(entry),
+      ),
+    ));
+    bar.closed.then((_) {
+      if (_undoBar == bar) _undoBar = null;
+    });
   }
 
   @override
@@ -106,13 +147,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
           if (entries.isEmpty) return const _EmptyState();
           final now = _now();
           final streaks = Streaks.of(entries, now);
-          final selected = _selectedDay;
-          // A deleted run can leave the selected day empty: show everything.
-          final shown = selected == null
+          final daysRuns = _selectedDay == null
               ? entries
-              : entries.where((e) => dayOf(e.endedAt) == selected).toList();
+              : entries.where((e) => dayOf(e.endedAt) == _selectedDay).toList();
+          // A selected day without runs (e.g. that session's runs were all
+          // cleared) counts as no day selected.
+          final selected = daysRuns.isEmpty ? null : _selectedDay;
+          final shown = selected == null ? entries : daysRuns;
           final byDay = <DateTime, List<HistoryEntry>>{};
-          for (final e in shown.isEmpty ? entries : shown) {
+          for (final e in shown) {
             (byDay[dayOf(e.endedAt)] ??= []).add(e);
           }
           return ListView(
@@ -131,14 +174,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
               _MonthCalendar(
                 month: _month,
                 today: dayOf(now),
-                selectedDay: shown.isEmpty ? null : selected,
+                selectedDay: selected,
                 entries: entries,
-                onMonthChanged: (m) => setState(() => _month = m),
+                onMonthChanged: _showMonth,
                 onDayTapped: (day) => setState(
                   () => _selectedDay = day == _selectedDay ? null : day,
                 ),
               ),
-              if (selected != null && shown.isNotEmpty)
+              if (selected != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Align(

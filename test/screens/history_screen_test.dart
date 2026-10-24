@@ -4,18 +4,21 @@ import 'package:tonaros/app_scope.dart';
 import 'package:tonaros/screens/history_screen.dart';
 import 'package:tonaros/services/history_store.dart';
 
-import '../models/history_entry_test.dart' show run;
 import '../test_app.dart';
+
+/// A phone-sized screen, so the runs below the calendar are on screen.
+void usePhoneScreen(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1200, 2700);
+  tester.view.devicePixelRatio = 3;
+  addTearDown(tester.view.reset);
+}
 
 void main() {
   final now = DateTime(2026, 3, 10, 18);
 
   Future<HistoryStore> pumpHistory(WidgetTester tester,
       {String? sessionId}) async {
-    // A phone-sized screen, so the runs below the calendar are on screen.
-    tester.view.physicalSize = const Size(1200, 2700);
-    tester.view.devicePixelRatio = 3;
-    addTearDown(tester.view.reset);
+    usePhoneScreen(tester);
     await tester.pumpWidget(await withAppScope(MaterialApp(
       home:
           HistoryScreen(sessionId: sessionId, sessionName: 'S', now: () => now),
@@ -85,5 +88,80 @@ void main() {
     await tester.pumpAndSettle();
     expect(history.entries, isEmpty);
     expect(find.text('No runs yet'), findsOneWidget);
+  });
+
+  testWidgets('undo is gone once the history is cleared', (tester) async {
+    final history = await pumpHistory(tester);
+    await history.add(run(DateTime(2026, 3, 10, 8)));
+    await history.add(run(DateTime(2026, 3, 9, 8)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Delete run').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Clear history'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear'));
+    await tester.pumpAndSettle();
+    expect(find.text('Undo'), findsNothing);
+    expect(history.entries, isEmpty);
+  });
+
+  testWidgets('a day with no runs left stops filtering the list',
+      (tester) async {
+    final history = await pumpHistory(tester);
+    await history.add(run(DateTime(2026, 3, 10, 8)));
+    await history.add(run(DateTime(2026, 3, 9, 8)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('9'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Delete run'));
+    await tester.pumpAndSettle();
+    expect(find.text('Tue 10 March'), findsOneWidget);
+
+    // Undo brings the run back without bringing the filter back.
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+    expect(find.text('Tue 10 March'), findsOneWidget);
+    expect(find.text('Mon 9 March'), findsOneWidget); // header, no chip
+  });
+
+  testWidgets('another month clears the day filter', (tester) async {
+    final history = await pumpHistory(tester);
+    await history.add(run(DateTime(2026, 3, 10, 8)));
+    await history.add(run(DateTime(2026, 3, 9, 8)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('9'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Previous month'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Show all days'), findsNothing);
+    expect(find.text('Tue 10 March'), findsOneWidget);
+  });
+
+  testWidgets('leaving the screen takes its undo with it', (tester) async {
+    usePhoneScreen(tester);
+    await tester.pumpWidget(await withAppScope(MaterialApp(
+      home: Builder(
+        builder: (context) => TextButton(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => HistoryScreen(now: () => now)),
+          ),
+          child: const Text('go'),
+        ),
+      ),
+    )));
+    final history = AppScope.read(tester.element(find.text('go'))).history;
+    await history.add(run(DateTime(2026, 3, 10, 8)));
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Delete run'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Undo'), findsNothing);
   });
 }

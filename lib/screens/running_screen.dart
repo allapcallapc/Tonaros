@@ -23,6 +23,7 @@ class RunningScreen extends StatefulWidget {
     super.key,
     required this.session,
     this.clock,
+    this.now,
     this.cueOutput,
   });
 
@@ -30,6 +31,10 @@ class RunningScreen extends StatefulWidget {
 
   /// Injectable for tests.
   final MonotonicClock? clock;
+
+  /// Wall-clock time, for when a run is recorded in the history. Injectable
+  /// for tests.
+  final DateTime Function()? now;
 
   /// Defaults to the app-wide [AppScope.cues].
   final CueOutput? cueOutput;
@@ -109,18 +114,29 @@ class _RunningScreenState extends State<RunningScreen>
 
   /// Adds this run to the history - unless it was stopped before a single
   /// hold or rep was done (e.g. during "get ready"), which isn't a workout.
-  void _record() {
+  Future<void> _record() async {
     if (!_runner.completed && _runner.holdsDone == 0 && _runner.repsDone == 0) {
       return;
     }
-    AppScope.read(context).history.add(HistoryEntry.record(
-          session: widget.session,
-          endedAt: DateTime.now(),
-          completed: _runner.completed,
-          reps: _runner.repsDone,
-          holds: _runner.holdsDone,
-          activeTime: _runner.activeTime,
-        ));
+    // Looked up now: this screen is replaced by the summary straight away.
+    final history = AppScope.read(context).history;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await history.add(HistoryEntry.record(
+        session: widget.session,
+        endedAt: (widget.now ?? DateTime.now)(),
+        completed: _runner.completed,
+        reps: _runner.repsDone,
+        holds: _runner.holdsDone,
+        activeTime: _runner.activeTime,
+      ));
+    } on Object catch (e) {
+      // E.g. web storage full: the run would be gone on the next launch.
+      debugPrint('RunningScreen: could not save the run to history: $e');
+      messenger.showSnackBar(const SnackBar(
+        content: Text("Couldn't save this run to your history"),
+      ));
+    }
   }
 
   /// Guards against a second "Stop session?" dialog (double tap on the

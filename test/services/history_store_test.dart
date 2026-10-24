@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tonaros/services/history_store.dart';
 
-import '../models/history_entry_test.dart' show run;
+import '../test_app.dart' show run;
 
 void main() {
   Future<HistoryStore> store([Map<String, Object> values = const {}]) async {
@@ -45,7 +45,7 @@ void main() {
   test('unreadable entries are skipped and backed up', () async {
     final s = await store({
       'history': '[{"id": 1}, ${'{"id":"a","sessionId":"s","sessionName":"S",'
-          '"endedAt":0,"completed":true,"reps":1,"holds":0,"activeMs":1000}'}]',
+          '"endedAt":"2026-03-01T08:00:00.000","completed":true,"reps":1,"holds":0,"activeMs":1000}'}]',
     });
     expect(s.entries.single.id, 'a');
     final prefs = await SharedPreferences.getInstance();

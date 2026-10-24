@@ -29,6 +29,7 @@ void main() {
                   RunningScreen(
                     session: session,
                     clock: () => clock.now,
+                    now: () => DateTime(2026, 3, 10, 9, 41),
                     cueOutput: cues,
                   ),
             ),
@@ -300,6 +301,7 @@ void main() {
     expect(entry.sessionName, 'S');
     expect(entry.completed, isTrue);
     expect(entry.activeTime.inSeconds, 31);
+    expect(entry.endedAt, DateTime(2026, 3, 10, 9, 41));
   });
 
   testWidgets('a run stopped before anything was done is not recorded',
