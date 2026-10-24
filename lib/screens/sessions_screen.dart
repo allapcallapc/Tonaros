@@ -4,6 +4,7 @@ import '../app_scope.dart';
 import '../models/session.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/exercise_summary.dart';
+import 'history_screen.dart';
 import 'running_screen.dart';
 import 'session_editor_screen.dart';
 import 'settings_screen.dart';
@@ -78,6 +79,14 @@ class _SessionsScreenState extends State<SessionsScreen> {
         title: const Text('Tonaros'),
         actions: [
           IconButton(
+            tooltip: 'History',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const HistoryScreen()),
+            ),
+            icon: const Icon(Icons.history),
+          ),
+          IconButton(
             tooltip: 'Settings',
             onPressed: () => Navigator.push(
               context,
@@ -105,6 +114,15 @@ class _SessionsScreenState extends State<SessionsScreen> {
               session: sessions[i],
               onTap: () => _open(sessions[i]),
               onStart: () => RunningScreen.open(context, sessions[i]),
+              onHistory: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => HistoryScreen(
+                    sessionId: sessions[i].id,
+                    sessionName: sessions[i].name,
+                  ),
+                ),
+              ),
               onRename: () => _rename(sessions[i]),
               onDuplicate: () => store.duplicate(sessions[i]),
               onDelete: () => _delete(sessions[i]),
@@ -144,13 +162,14 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-enum _SessionAction { rename, duplicate, delete }
+enum _SessionAction { history, rename, duplicate, delete }
 
 class _SessionCard extends StatelessWidget {
   const _SessionCard({
     required this.session,
     required this.onTap,
     required this.onStart,
+    required this.onHistory,
     required this.onRename,
     required this.onDuplicate,
     required this.onDelete,
@@ -159,6 +178,7 @@ class _SessionCard extends StatelessWidget {
   final Session session;
   final VoidCallback onTap;
   final VoidCallback onStart;
+  final VoidCallback onHistory;
   final VoidCallback onRename;
   final VoidCallback onDuplicate;
   final VoidCallback onDelete;
@@ -189,11 +209,14 @@ class _SessionCard extends StatelessWidget {
         trailing: PopupMenuButton<_SessionAction>(
           tooltip: 'More',
           onSelected: (a) => switch (a) {
+            _SessionAction.history => onHistory(),
             _SessionAction.rename => onRename(),
             _SessionAction.duplicate => onDuplicate(),
             _SessionAction.delete => onDelete(),
           },
           itemBuilder: (_) => const [
+            PopupMenuItem(
+                value: _SessionAction.history, child: Text('History')),
             PopupMenuItem(value: _SessionAction.rename, child: Text('Rename')),
             PopupMenuItem(
                 value: _SessionAction.duplicate, child: Text('Duplicate')),

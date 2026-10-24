@@ -6,7 +6,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tonaros/app_scope.dart';
 import 'package:tonaros/main.dart';
+import 'package:tonaros/models/history_entry.dart';
 import 'package:tonaros/services/cues.dart';
+import 'package:tonaros/services/history_store.dart';
 import 'package:tonaros/services/session_store.dart';
 import 'package:tonaros/services/settings_store.dart';
 import 'package:tonaros/services/update_controller.dart';
@@ -47,6 +49,7 @@ Future<SessionStore> pumpApp(
   final sessions = SessionStore(sharedPrefs);
   await tester.pumpWidget(TonarosApp(
     sessions: sessions,
+    history: HistoryStore(sharedPrefs),
     settings: SettingsStore(sharedPrefs),
     updates: UpdateController(updateService ?? FakeUpdateService(null)),
     cues: FakeCueOutput(),
@@ -81,9 +84,24 @@ Future<Widget> withAppScope(Widget child,
   final sharedPrefs = await SharedPreferences.getInstance();
   return AppScope(
     sessions: SessionStore(sharedPrefs),
+    history: HistoryStore(sharedPrefs),
     settings: SettingsStore(sharedPrefs),
     updates: UpdateController(FakeUpdateService(null)),
     cues: FakeCueOutput(),
     child: child,
   );
 }
+
+/// A run of session [sessionId] that ended at [at].
+HistoryEntry run(DateTime at,
+        {bool completed = true, String sessionId = 's'}) =>
+    HistoryEntry(
+      id: '$sessionId${at.millisecondsSinceEpoch}',
+      sessionId: sessionId,
+      sessionName: 'S',
+      endedAt: at,
+      completed: completed,
+      reps: 1,
+      holds: 1,
+      activeTime: const Duration(seconds: 30),
+    );
