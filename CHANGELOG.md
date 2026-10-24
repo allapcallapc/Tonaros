@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.0](https://github.com/allapcallapc/Tonaros/compare/v0.7.0...v0.8.0) (2026-10-24)
+
+
+### Features
+
+* add About dialog with version and open-source licenses ([#2](https://github.com/allapcallapc/Tonaros/issues/2)) ([784b161](https://github.com/allapcallapc/Tonaros/commit/784b1613928634ae76f53dd4e568f2b44a7a9216))
+* go back to the previous exercise while running a session ([#14](https://github.com/allapcallapc/Tonaros/issues/14)) ([e991320](https://github.com/allapcallapc/Tonaros/commit/e991320f5a9458551d658dc14652d9fdadd09f51))
+* run sessions with a draining ring timer ([#6](https://github.com/allapcallapc/Tonaros/issues/6)) ([c611dff](https://github.com/allapcallapc/Tonaros/commit/c611dffbf4da6dfbb2c74309138db216833f4293))
+* session history with streaks and a calendar ([#16](https://github.com/allapcallapc/Tonaros/issues/16)) ([6ce6c81](https://github.com/allapcallapc/Tonaros/commit/6ce6c81eee025d4f50310aac2d99217743727e96))
+* sessions and exercise editor ([#5](https://github.com/allapcallapc/Tonaros/issues/5)) ([3010012](https://github.com/allapcallapc/Tonaros/commit/3010012f8be8095f951f0be48fb6d572c7e9e25c))
+* sound and vibration cues, keep screen awake ([#7](https://github.com/allapcallapc/Tonaros/issues/7)) ([19cf95b](https://github.com/allapcallapc/Tonaros/commit/19cf95b3d01c03f97aa69d8748ba4198a24dddef))
+* subtle whole-session progress bar on the running screen ([#12](https://github.com/allapcallapc/Tonaros/issues/12)) ([1777779](https://github.com/allapcallapc/Tonaros/commit/17777793b3a4fb723b388cdb6bac2e44a02f01af))
+
 ## [0.7.0](https://github.com/allapcallapc/Tonaros/compare/v0.6.0...v0.7.0) (2026-10-24)
 
 
