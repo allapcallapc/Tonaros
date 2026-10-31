@@ -109,6 +109,7 @@ HistoryEntry run(DateTime at,
 
 /// Records what the background notification would show.
 class FakeBackgroundSession implements BackgroundSession {
+  /// The texts shown, in order, without consecutive repeats.
   final shown = <String>[];
   bool running = false;
 
@@ -130,7 +131,8 @@ class FakeBackgroundSession implements BackgroundSession {
   @override
   Future<void> update(BackgroundStatus status) async {
     last = status;
-    shown.add(status.text);
+    // Countdown resyncs resend the same text; [shown] lists what changed.
+    if (shown.isEmpty || shown.last != status.text) shown.add(status.text);
   }
 
   @override

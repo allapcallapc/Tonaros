@@ -91,19 +91,39 @@ class MainActivity : FlutterActivity() {
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         SessionService.onAction = null
+        // The engine (and the Dart session with it) is going away, so the
+        // running screen will never stop the service itself: don't leave its
+        // notification, dead button and wake lock behind.
+        SessionService.stop(this)
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
     /**
      * Android 13+ hides the session notification unless notifications are
-     * allowed. Asks once per session start; the system stops showing the
-     * prompt after the user declines twice, and the session runs either way.
+     * allowed. Asks only the first time a session starts, not every time: the
+     * prompt would cover the get-ready countdown, and the session runs either
+     * way. The result needs no handling.
      */
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             == PackageManager.PERMISSION_GRANTED
         ) return
-        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        if (prefs.getBoolean(ASKED_NOTIFICATIONS, false)) return
+        prefs.edit().putBoolean(ASKED_NOTIFICATIONS, true).apply()
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            NOTIFICATION_PERMISSION_REQUEST,
+        )
+    }
+
+    private companion object {
+        const val PREFS = "com.tonaros.app.session"
+        const val ASKED_NOTIFICATIONS = "askedNotificationPermission"
+
+        /** Unlikely to collide with the request codes plugins use. */
+        const val NOTIFICATION_PERMISSION_REQUEST = 0x7a01
     }
 }

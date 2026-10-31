@@ -43,6 +43,10 @@
             android:name=".SessionService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+        <!-- The session notification's Pause/Resume/Continue button. -->
+        <receiver
+            android:name=".SessionService$ActionReceiver"
+            android:exported="false" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

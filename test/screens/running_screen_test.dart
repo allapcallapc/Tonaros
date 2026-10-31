@@ -432,6 +432,64 @@ void main() {
     expect(background.last!.text, isNot(startsWith('Tap to continue')));
   });
 
+  testWidgets('stops the background session as soon as the session ends',
+      (tester) async {
+    await pumpRunning(
+      tester,
+      Session(id: 's', name: 'S', exercises: [
+        const HoldExercise(
+          id: 'a',
+          name: 'A',
+          sets: 1,
+          restBetweenSets: 0,
+          tapBetweenSets: false,
+          reps: 1,
+          holdSeconds: 5,
+          restBetweenReps: 0,
+        ),
+      ]),
+    );
+    await elapse(tester, 3);
+    expect(background.running, isTrue);
+    await elapse(tester, 5);
+    // The summary route is still coming in, so this screen isn't disposed
+    // yet (in the background it wouldn't be until the app is reopened).
+    expect(find.byType(RunningScreen), findsOneWidget);
+    expect(background.running, isFalse);
+    await tester.pumpAndSettle();
+    expect(find.byType(SummaryScreen), findsOneWidget);
+  });
+
+  testWidgets('resends the countdown when it drifts from the timer',
+      (tester) async {
+    await pumpRunning(
+      tester,
+      Session(id: 's', name: 'S', exercises: [
+        const HoldExercise(
+          id: 'a',
+          name: 'A',
+          sets: 1,
+          restBetweenSets: 0,
+          tapBetweenSets: false,
+          reps: 1,
+          holdSeconds: 10,
+          restBetweenReps: 0,
+        ),
+      ]),
+    );
+    await elapse(tester, 3);
+    final endsAt = background.last!.endsAt!;
+    // The runner's clock moves on but the wall clock doesn't (as when the
+    // wall clock is set back): the countdown has to follow the timer.
+    await elapse(tester, 4);
+    expect(find.text('HOLD'), findsOneWidget);
+    expect(
+      endsAt.difference(background.last!.endsAt!),
+      greaterThan(const Duration(seconds: 3)),
+    );
+    expect(background.shown.last, startsWith('Hold · '));
+  });
+
   testWidgets('going back an exercise updates the notification',
       (tester) async {
     await pumpRunning(tester, sampleSession());

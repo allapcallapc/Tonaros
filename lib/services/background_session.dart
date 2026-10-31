@@ -41,9 +41,16 @@ class PlatformBackgroundSession implements BackgroundSession {
   static bool get isSupported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
+  /// The instance whose session the service is running. There is one
+  /// service and one channel for the whole app, so an instance that has
+  /// been superseded (e.g. a running screen disposed after the next one
+  /// started) must leave them alone.
+  static PlatformBackgroundSession? _owner;
+
   @override
   Future<void> start(BackgroundStatus status,
       {required VoidCallback onAction}) {
+    _owner = this;
     if (isSupported) {
       _channel.setMethodCallHandler((call) async {
         if (call.method == 'action') onAction();
@@ -53,10 +60,15 @@ class PlatformBackgroundSession implements BackgroundSession {
   }
 
   @override
-  Future<void> update(BackgroundStatus status) => _call('update', status);
+  Future<void> update(BackgroundStatus status) async {
+    if (_owner != this) return;
+    return _call('update', status);
+  }
 
   @override
-  Future<void> stop() {
+  Future<void> stop() async {
+    if (_owner != this) return;
+    _owner = null;
     if (isSupported) _channel.setMethodCallHandler(null);
     return _call('stop');
   }

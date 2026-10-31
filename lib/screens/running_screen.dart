@@ -70,6 +70,16 @@ class _RunningScreenState extends State<RunningScreen>
   /// The phase and status the notification last showed.
   (int, RunnerStatus)? _shown;
 
+  /// When the notification's countdown last said the phase ends.
+  DateTime? _shownEndsAt;
+
+  /// How far the notification's countdown may be off before it's resent:
+  /// the timer may run late in the background, or the wall clock be
+  /// changed, and the countdown is drawn from the wall clock.
+  static const _maxCountdownDrift = Duration(seconds: 1);
+
+  bool _backgroundStopped = false;
+
   @override
   void initState() {
     super.initState();
@@ -85,7 +95,19 @@ class _RunningScreenState extends State<RunningScreen>
     _runner.addListener(_onRunnerChanged);
     // Keep timing and cues going with the app in the background.
     _shown = (_runner.index, _runner.status);
-    _background.start(_backgroundStatus(), onAction: _onNotificationAction);
+    final status = _backgroundStatus();
+    _shownEndsAt = status.endsAt;
+    _background.start(status, onAction: _onNotificationAction);
+  }
+
+  /// Stops the background session, once. Done as soon as the session ends,
+  /// not just in [dispose]: with the app in the background the summary
+  /// route's transition gets no frames, so this screen isn't disposed until
+  /// the app is reopened, and the notification and wake lock would linger.
+  void _stopBackground() {
+    if (_backgroundStopped) return;
+    _backgroundStopped = true;
+    _background.stop();
   }
 
   @override
@@ -95,7 +117,7 @@ class _RunningScreenState extends State<RunningScreen>
     _cues.dispose();
     _runner.dispose();
     _cueOutput.setKeepAwake(false);
-    _background.stop();
+    _stopBackground();
     super.dispose();
   }
 
@@ -143,12 +165,15 @@ class _RunningScreenState extends State<RunningScreen>
         RunnerStatus.waitingForTap => 'Continue',
         RunnerStatus.finished => null,
       },
-      // The real clock, not the runner's: the system draws the countdown.
-      endsAt: _runner.status == RunnerStatus.running
-          ? DateTime.now().add(_runner.remaining)
-          : null,
+      endsAt: _countdownEnd(),
     );
   }
+
+  /// When the current phase ends by the real clock, not the runner's: the
+  /// system draws the countdown. Null unless counting down.
+  DateTime? _countdownEnd() => _runner.status == RunnerStatus.running
+      ? DateTime.now().add(_runner.remaining)
+      : null;
 
   /// The notification's button does what the main button on screen does.
   void _onNotificationAction() {
@@ -162,6 +187,7 @@ class _RunningScreenState extends State<RunningScreen>
 
   void _onRunnerChanged() {
     if (_runner.status == RunnerStatus.finished) {
+      _stopBackground();
       _record();
       Navigator.pushReplacement(
         context,
@@ -177,8 +203,13 @@ class _RunningScreenState extends State<RunningScreen>
       );
     } else {
       final shown = (_runner.index, _runner.status);
-      if (shown != _shown) {
+      final endsAt = _countdownEnd();
+      final drifted = endsAt != null &&
+          _shownEndsAt != null &&
+          endsAt.difference(_shownEndsAt!).abs() > _maxCountdownDrift;
+      if (shown != _shown || drifted) {
         _shown = shown;
+        _shownEndsAt = endsAt;
         _background.update(_backgroundStatus());
       }
       setState(() {});
