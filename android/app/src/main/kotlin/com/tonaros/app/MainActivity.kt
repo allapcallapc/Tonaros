@@ -22,18 +22,22 @@ class MainActivity : FlutterActivity() {
 
         // Keeps a running session alive in the background - see SessionService
         // and lib/services/background_session.dart.
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, sessionChannelName).setMethodCallHandler { call, result ->
+        val sessionChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, sessionChannelName)
+        // The notification's Pause/Resume/Continue button.
+        SessionService.onAction = { sessionChannel.invokeMethod("action", null) }
+        sessionChannel.setMethodCallHandler { call, result ->
             val title = call.argument<String>("title") ?: "Tonaros"
             val text = call.argument<String>("text") ?: ""
             val endsAt = call.argument<Number>("endsAt")?.toLong() ?: 0L
+            val action = call.argument<String>("action")
             when (call.method) {
                 "start" -> {
                     requestNotificationPermission()
-                    SessionService.start(this, title, text, endsAt)
+                    SessionService.start(this, title, text, endsAt, action)
                     result.success(null)
                 }
                 "update" -> {
-                    SessionService.update(this, title, text, endsAt)
+                    SessionService.update(this, title, text, endsAt, action)
                     result.success(null)
                 }
                 "stop" -> {
@@ -83,6 +87,11 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        SessionService.onAction = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     /**

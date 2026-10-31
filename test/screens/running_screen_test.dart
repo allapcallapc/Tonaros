@@ -399,4 +399,49 @@ void main() {
     expect(find.text('HOLD'), findsOneWidget);
     expect(find.text('Set 2/2'), findsOneWidget);
   });
+
+  testWidgets('the notification button pauses, resumes and continues',
+      (tester) async {
+    await pumpRunning(
+        tester, sampleSession(transition: const Transition.tap()));
+    await elapse(tester, 3);
+    expect(background.last!.action, 'Pause');
+    expect(background.last!.endsAt, isNotNull);
+
+    background.tapAction!();
+    await tester.pump();
+    expect(find.bySemanticsLabel('Resume'), findsOneWidget);
+    expect(background.last!.text, 'Paused · Hold · Rep 1/2 · A');
+    expect(background.last!.action, 'Resume');
+    // Nothing to count down: no countdown, so no wake lock either.
+    expect(background.last!.endsAt, isNull);
+
+    background.tapAction!();
+    await tester.pump();
+    expect(background.last!.action, 'Pause');
+    for (final seconds in [5, 3, 5]) {
+      await elapse(tester, seconds);
+    }
+    expect(background.last!.text, 'Tap to continue · Next: B');
+    expect(background.last!.action, 'Continue');
+    expect(background.last!.endsAt, isNull);
+
+    background.tapAction!();
+    await tester.pump();
+    expect(background.last!.action, 'Pause');
+    expect(background.last!.text, isNot(startsWith('Tap to continue')));
+  });
+
+  testWidgets('going back an exercise updates the notification',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await elapse(tester, 3);
+    await tester.tap(find.byTooltip('Skip exercise'));
+    await tester.pump();
+    expect(background.last!.text, isNot(contains('· A')));
+
+    await tester.tap(find.byTooltip('Previous exercise'));
+    await tester.pump();
+    expect(background.last!.text, 'Hold · Rep 1/2 · A');
+  });
 }

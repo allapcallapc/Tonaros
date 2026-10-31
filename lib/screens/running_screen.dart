@@ -85,7 +85,7 @@ class _RunningScreenState extends State<RunningScreen>
     _runner.addListener(_onRunnerChanged);
     // Keep timing and cues going with the app in the background.
     _shown = (_runner.index, _runner.status);
-    _background.start(_backgroundStatus());
+    _background.start(_backgroundStatus(), onAction: _onNotificationAction);
   }
 
   @override
@@ -137,11 +137,27 @@ class _RunningScreenState extends State<RunningScreen>
     return BackgroundStatus(
       title: widget.session.name,
       text: text,
+      action: switch (_runner.status) {
+        RunnerStatus.running => 'Pause',
+        RunnerStatus.paused => 'Resume',
+        RunnerStatus.waitingForTap => 'Continue',
+        RunnerStatus.finished => null,
+      },
       // The real clock, not the runner's: the system draws the countdown.
       endsAt: _runner.status == RunnerStatus.running
           ? DateTime.now().add(_runner.remaining)
           : null,
     );
+  }
+
+  /// The notification's button does what the main button on screen does.
+  void _onNotificationAction() {
+    if (!mounted) return;
+    if (_runner.status == RunnerStatus.waitingForTap) {
+      _runner.skipPhase();
+    } else {
+      _runner.togglePause();
+    }
   }
 
   void _onRunnerChanged() {

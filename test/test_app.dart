@@ -112,14 +112,26 @@ class FakeBackgroundSession implements BackgroundSession {
   final shown = <String>[];
   bool running = false;
 
+  /// The latest status, e.g. for its button label and countdown.
+  BackgroundStatus? last;
+
+  /// Taps the notification's button.
+  VoidCallback? tapAction;
+
   @override
-  Future<void> start(BackgroundStatus status) async {
+  Future<void> start(BackgroundStatus status,
+      {required VoidCallback onAction}) async {
     running = true;
+    tapAction = onAction;
+    last = status;
     shown.add(status.text);
   }
 
   @override
-  Future<void> update(BackgroundStatus status) async => shown.add(status.text);
+  Future<void> update(BackgroundStatus status) async {
+    last = status;
+    shown.add(status.text);
+  }
 
   @override
   Future<void> stop() async => running = false;

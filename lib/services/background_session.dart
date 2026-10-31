@@ -7,14 +7,21 @@ class BackgroundStatus {
     required this.title,
     required this.text,
     this.endsAt,
+    this.action,
   });
 
   final String title;
   final String text;
 
   /// When the current phase ends, for the notification's live countdown;
-  /// null while paused or waiting for a tap.
+  /// null while paused or waiting for a tap. Also whether the CPU is kept
+  /// awake: only while there's a countdown for the timer to follow.
   final DateTime? endsAt;
+
+  /// The label of the notification's button ("Pause", "Resume",
+  /// "Continue"), which mirrors the running screen's main button; none if
+  /// null.
+  final String? action;
 }
 
 /// Keeps a running session alive with the app in the background or the
@@ -22,7 +29,8 @@ class BackgroundStatus {
 /// this is a foreground service (android/.../SessionService.kt) with an
 /// ongoing notification; elsewhere it does nothing.
 abstract class BackgroundSession {
-  Future<void> start(BackgroundStatus status);
+  /// Starts it; [onAction] runs when the notification's button is tapped.
+  Future<void> start(BackgroundStatus status, {required VoidCallback onAction});
   Future<void> update(BackgroundStatus status);
   Future<void> stop();
 }
@@ -34,13 +42,24 @@ class PlatformBackgroundSession implements BackgroundSession {
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   @override
-  Future<void> start(BackgroundStatus status) => _call('start', status);
+  Future<void> start(BackgroundStatus status,
+      {required VoidCallback onAction}) {
+    if (isSupported) {
+      _channel.setMethodCallHandler((call) async {
+        if (call.method == 'action') onAction();
+      });
+    }
+    return _call('start', status);
+  }
 
   @override
   Future<void> update(BackgroundStatus status) => _call('update', status);
 
   @override
-  Future<void> stop() => _call('stop');
+  Future<void> stop() {
+    if (isSupported) _channel.setMethodCallHandler(null);
+    return _call('stop');
+  }
 
   /// Never throws: the session runs on in the foreground regardless.
   Future<void> _call(String method, [BackgroundStatus? status]) async {
@@ -51,6 +70,7 @@ class PlatformBackgroundSession implements BackgroundSession {
           'title': status.title,
           'text': status.text,
           'endsAt': status.endsAt?.millisecondsSinceEpoch ?? 0,
+          'action': status.action,
         },
       });
     } on Object catch (e) {
