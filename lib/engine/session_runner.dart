@@ -54,10 +54,21 @@ MonotonicClock stopwatchClock() {
 class SessionRunner extends ChangeNotifier {
   SessionRunner(this.session, {MonotonicClock? clock})
       : plan = buildPlan(session),
-        _clock = clock ?? stopwatchClock();
+        _clock = clock ?? stopwatchClock() {
+    var total = 0;
+    for (final p in plan) {
+      _secondsBefore.add(total);
+      total += p.seconds;
+    }
+    _totalSeconds = total;
+  }
 
   final Session session;
   final List<Phase> plan;
+
+  /// Planned seconds of the phases before each phase, and of the whole plan.
+  final List<int> _secondsBefore = [];
+  late final int _totalSeconds;
   final MonotonicClock _clock;
 
   final _events = StreamController<RunnerEvent>.broadcast(sync: true);
@@ -143,6 +154,22 @@ class SessionRunner extends ChangeNotifier {
       ? 1
       : (remaining.inMilliseconds / (phase.seconds * 1000)).clamp(0.0, 1.0);
 
+  /// How far through the session's planned time we are: 0 until started, 1
+  /// once completed, and held where it was when stopped early. Skipping
+  /// jumps ahead; "wait until tap" phases take none.
+  double get sessionProgress {
+    if (_completed) return 1;
+    if (_progressAtStop != null) return _progressAtStop!;
+    if (!_started || _totalSeconds == 0) return 0;
+    final done = _secondsBefore[_index] * 1000 +
+        phase.seconds * 1000 * (1 - fractionLeft);
+    return (done / (_totalSeconds * 1000)).clamp(0.0, 1.0);
+  }
+
+  /// [sessionProgress] when stopped early (once finished, [remaining] is 0
+  /// and would count the current phase as done).
+  double? _progressAtStop;
+
   Duration get activeTime =>
       _activeBefore +
       (_runningSince == null ? Duration.zero : _clock() - _runningSince!);
@@ -206,6 +233,46 @@ class SessionRunner extends ChangeNotifier {
     }
     _moveTo(next, skipped: true);
   }
+
+  /// Goes back to the start of the exercise on screen
+  /// ([displayExerciseIndex]) if it's past its first phase, otherwise to the
+  /// start of the one before it - e.g. to redo an exercise skipped by
+  /// mistake. Does nothing when [canGoBack] is false.
+  void previousExercise() {
+    if (!_started || _status == RunnerStatus.finished || !canGoBack) return;
+    _moveTo(
+      previousRestarts
+          ? _exerciseStart(displayExerciseIndex)
+          : _previousStart()!,
+      skipped: true,
+    );
+  }
+
+  /// Whether [previousExercise] would restart this exercise (rather than go
+  /// to the previous one).
+  bool get previousRestarts {
+    final start = _exerciseStart(displayExerciseIndex);
+    return start >= 0 && _index > start;
+  }
+
+  /// False before the first exercise has got past its first phase.
+  bool get canGoBack => previousRestarts || _previousStart() != null;
+
+  /// Where the exercise before the one on screen starts, if there is one.
+  int? _previousStart() {
+    for (var i = displayExerciseIndex - 1; i >= 0; i--) {
+      final start = _exerciseStart(i);
+      if (start >= 0) return start;
+    }
+    return null;
+  }
+
+  /// Index in [plan] of the first phase of exercise [exerciseIndex].
+  int _exerciseStart(int exerciseIndex) => plan.indexWhere((p) =>
+      p.exerciseIndex == exerciseIndex &&
+      p.kind != PhaseKind.getReady &&
+      p.kind != PhaseKind.transition &&
+      p.kind != PhaseKind.waitForTap);
 
   /// Ends the session early.
   void stop() {
@@ -316,6 +383,7 @@ class SessionRunner extends ChangeNotifier {
   }
 
   void _finish({required bool announce, Duration? at}) {
+    if (!_completed) _progressAtStop = sessionProgress;
     _stopActiveClock(at);
     _setStatus(RunnerStatus.finished);
     if (announce) _events.add(const SessionFinished());

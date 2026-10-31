@@ -5,6 +5,7 @@ import 'package:flutter/scheduler.dart';
 import '../app_scope.dart';
 import '../engine/session_plan.dart';
 import '../engine/session_runner.dart';
+import '../models/history_entry.dart';
 import '../models/session.dart';
 import '../services/background_session.dart';
 import '../services/cues.dart';
@@ -13,6 +14,7 @@ import '../theme/phase_colors.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/phase_ring.dart';
 import '../widgets/rep_dots.dart';
+import '../widgets/session_progress_bar.dart';
 import '../widgets/tempo_curve.dart';
 import 'summary_screen.dart';
 
@@ -22,6 +24,7 @@ class RunningScreen extends StatefulWidget {
     super.key,
     required this.session,
     this.clock,
+    this.now,
     this.cueOutput,
     this.background,
   });
@@ -30,6 +33,10 @@ class RunningScreen extends StatefulWidget {
 
   /// Injectable for tests.
   final MonotonicClock? clock;
+
+  /// Wall-clock time, for when a run is recorded in the history. Injectable
+  /// for tests.
+  final DateTime Function()? now;
 
   /// Defaults to the app-wide [AppScope.cues].
   final CueOutput? cueOutput;
@@ -139,6 +146,7 @@ class _RunningScreenState extends State<RunningScreen>
 
   void _onRunnerChanged() {
     if (_runner.status == RunnerStatus.finished) {
+      _record();
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -158,6 +166,33 @@ class _RunningScreenState extends State<RunningScreen>
         _background.update(_backgroundStatus());
       }
       setState(() {});
+    }
+  }
+
+  /// Adds this run to the history - unless it was stopped before a single
+  /// hold or rep was done (e.g. during "get ready"), which isn't a workout.
+  Future<void> _record() async {
+    if (!_runner.completed && _runner.holdsDone == 0 && _runner.repsDone == 0) {
+      return;
+    }
+    // Looked up now: this screen is replaced by the summary straight away.
+    final history = AppScope.read(context).history;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await history.add(HistoryEntry.record(
+        session: widget.session,
+        endedAt: (widget.now ?? DateTime.now)(),
+        completed: _runner.completed,
+        reps: _runner.repsDone,
+        holds: _runner.holdsDone,
+        activeTime: _runner.activeTime,
+      ));
+    } on Object catch (e) {
+      // E.g. web storage full: the run would be gone on the next launch.
+      debugPrint('RunningScreen: could not save the run to history: $e');
+      messenger.showSnackBar(const SnackBar(
+        content: Text("Couldn't save this run to your history"),
+      ));
     }
   }
 
@@ -230,6 +265,10 @@ class _RunningScreenState extends State<RunningScreen>
               vibrationAvailable: _cueOutput.vibrationAvailable,
             ),
           ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(3),
+            child: _LiveProgressBar(runner: runner),
+          ),
         ),
         body: IgnorePointer(
           ignoring: finished,
@@ -472,6 +511,65 @@ class _LiveTimerState extends State<_LiveTimer>
   }
 }
 
+/// The whole-session progress bar under the app bar, repainted every frame
+/// while running so it creeps along smoothly.
+class _LiveProgressBar extends StatefulWidget {
+  const _LiveProgressBar({required this.runner});
+
+  final SessionRunner runner;
+
+  @override
+  State<_LiveProgressBar> createState() => _LiveProgressBarState();
+}
+
+class _LiveProgressBarState extends State<_LiveProgressBar>
+    with SingleTickerProviderStateMixin {
+  // _LiveTimer already ticks the runner each frame; this only repaints.
+  late final Ticker _ticker = createTicker((_) {
+    if (mounted) setState(() {});
+  });
+
+  @override
+  void initState() {
+    super.initState();
+    widget.runner.addListener(_syncTicker);
+    _syncTicker();
+  }
+
+  @override
+  void didUpdateWidget(_LiveProgressBar old) {
+    super.didUpdateWidget(old);
+    if (old.runner != widget.runner) {
+      old.runner.removeListener(_syncTicker);
+      widget.runner.addListener(_syncTicker);
+      _syncTicker();
+    }
+  }
+
+  void _syncTicker() {
+    final running = widget.runner.status == RunnerStatus.running;
+    if (running && !_ticker.isActive) _ticker.start();
+    if (!running && _ticker.isActive) _ticker.stop();
+  }
+
+  @override
+  void dispose() {
+    widget.runner.removeListener(_syncTicker);
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final runner = widget.runner;
+    final color = PhaseColors.of(runner.phase.kind);
+    return SessionProgressBar(
+      progress: runner.sessionProgress,
+      color: runner.paused ? color.withValues(alpha: 0.4) : color,
+    );
+  }
+}
+
 extension on SessionRunner {
   bool get paused => status == RunnerStatus.paused;
 }
@@ -556,10 +654,33 @@ class _Controls extends StatelessWidget {
   Widget build(BuildContext context) {
     final waiting = runner.status == RunnerStatus.waitingForTap;
     final running = runner.status == RunnerStatus.running;
+    // Spread over the full width, but scaled down rather than overflowing
+    // on narrow screens.
+    return LayoutBuilder(
+      builder: (context, constraints) => FittedBox(
+        fit: BoxFit.scaleDown,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: constraints.maxWidth),
+          child: _row(context, waiting: waiting, running: running),
+        ),
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context,
+      {required bool waiting, required bool running}) {
     const big = Size(88, 88);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
+        _SideButton(
+          icon: Icons.fast_rewind,
+          label: runner.previousRestarts ? 'Restart' : 'Previous',
+          tooltip: runner.previousRestarts
+              ? 'Restart exercise'
+              : 'Previous exercise',
+          onPressed: runner.canGoBack ? runner.previousExercise : null,
+        ),
         _SideButton(
           icon: Icons.skip_next,
           label: 'Skip phase',
@@ -604,10 +725,14 @@ class _SideButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.tooltip,
   });
 
   final IconData icon;
   final String label;
+
+  /// Defaults to [label].
+  final String? tooltip;
   final VoidCallback? onPressed;
 
   @override
@@ -616,7 +741,7 @@ class _SideButton extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton.filledTonal(
-          tooltip: label,
+          tooltip: tooltip ?? label,
           iconSize: 32,
           style: IconButton.styleFrom(minimumSize: const Size(64, 64)),
           onPressed: onPressed,

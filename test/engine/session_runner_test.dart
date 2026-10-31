@@ -309,4 +309,128 @@ void main() {
     runner.skipExercise();
     expect(runner.exercise.name, 'C');
   });
+
+  test('previous exercise restarts this one, then goes to the one before',
+      () {
+    setUpRunner(sampleSession());
+    runner.start();
+    // Nothing to go back to during get ready or A's first phase.
+    expect(runner.canGoBack, isFalse);
+    elapse(3);
+    expect(runner.canGoBack, isFalse);
+
+    elapse(6); // in the rest after A's first hold
+    expect(runner.phase.kind, PhaseKind.rest);
+    expect(runner.previousRestarts, isTrue);
+    runner.previousExercise();
+    expect(runner.phase.kind, PhaseKind.hold1);
+    expect(runner.phase.rep, 1);
+    expect(runner.secondsLeft, 5);
+    expect(runner.status, RunnerStatus.running);
+
+    // Skipped B by mistake: come back to it.
+    runner.skipExercise();
+    expect(runner.exercise.name, 'B');
+    runner.previousExercise();
+    expect(runner.exercise.name, 'A');
+    expect(runner.phase.kind, PhaseKind.hold1);
+
+    // From the transition (showing B), back goes to the start of A.
+    elapse(13 + 1);
+    expect(runner.phase.kind, PhaseKind.transition);
+    expect(runner.previousRestarts, isFalse);
+    runner.previousExercise();
+    expect(runner.exercise.name, 'A');
+    expect(runner.phase.kind, PhaseKind.hold1);
+  });
+
+  test('previous exercise works from a tap transition and while paused', () {
+    setUpRunner(sampleSession(transition: const Transition.tap()));
+    runner.start();
+    elapse(3 + 13);
+    expect(runner.status, RunnerStatus.waitingForTap);
+    runner.previousExercise();
+    expect(runner.status, RunnerStatus.running);
+    expect(runner.phase.kind, PhaseKind.hold1);
+
+    runner.skipExercise();
+    runner.skipPhase(); // B's move
+    runner.pause();
+    runner.previousExercise();
+    expect(runner.status, RunnerStatus.paused);
+    expect(runner.exercise.name, 'B');
+    expect(runner.phase.kind, PhaseKind.move);
+    expect(runner.secondsLeft, 2);
+  });
+
+  test('session progress follows planned time and ends at 1', () {
+    setUpRunner(sampleSession());
+    final total = runner.plan.fold<int>(0, (sum, p) => sum + p.seconds);
+    runner.start();
+    expect(runner.sessionProgress, 0);
+
+    elapse(1.5);
+    expect(runner.sessionProgress, closeTo(1.5 / total, 1e-9));
+
+    runner.pause();
+    clock.advance(20); // paused time doesn't count
+    expect(runner.sessionProgress, closeTo(1.5 / total, 1e-9));
+    runner.resume();
+
+    elapse(total - 1.5 - 0.5);
+    expect(runner.sessionProgress, closeTo((total - 0.5) / total, 1e-9));
+
+    elapse(1);
+    expect(runner.status, RunnerStatus.finished);
+    expect(runner.sessionProgress, 1);
+  });
+
+  test('session progress is 0 before start', () {
+    setUpRunner(sampleSession());
+    expect(runner.sessionProgress, 0);
+  });
+
+  test('stopping early holds session progress where it was', () {
+    setUpRunner(sampleSession());
+    runner.start();
+    elapse(1);
+    final before = runner.sessionProgress;
+    runner.stop();
+    expect(runner.sessionProgress, closeTo(before, 1e-9));
+  });
+
+  test('stopping partway through the last phase does not jump to 1', () {
+    setUpRunner(sampleSession());
+    final total = runner.plan.fold<int>(0, (sum, p) => sum + p.seconds);
+    runner.start();
+    elapse(total - 1); // 1 s left, in the last phase
+    expect(runner.index, runner.plan.length - 1);
+    final before = runner.sessionProgress;
+    expect(before, closeTo((total - 1) / total, 1e-9));
+    runner.stop();
+    expect(runner.sessionProgress, closeTo(before, 1e-9));
+  });
+
+  test('stopping while paused holds session progress too', () {
+    setUpRunner(sampleSession());
+    final total = runner.plan.fold<int>(0, (sum, p) => sum + p.seconds);
+    runner.start();
+    elapse(total - 1);
+    runner.pause();
+    runner.stop();
+    expect(runner.sessionProgress, closeTo((total - 1) / total, 1e-9));
+  });
+
+  test('skipping past the end holds session progress', () {
+    setUpRunner(sampleSession());
+    runner.start();
+    elapse(1);
+    final before = runner.sessionProgress;
+    runner.skipExercise();
+    runner.skipExercise();
+    expect(runner.status, RunnerStatus.finished);
+    expect(runner.completed, isFalse);
+    expect(runner.sessionProgress, lessThan(1));
+    expect(runner.sessionProgress, greaterThanOrEqualTo(before));
+  });
 }
