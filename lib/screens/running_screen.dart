@@ -159,7 +159,8 @@ class _RunningScreenState extends State<RunningScreen>
     return BackgroundStatus(
       title: widget.session.name,
       text: text,
-      action: switch (_runner.status) {
+      // No button while the "Stop session?" dialog is up.
+      action: _confirmingStop ? null : switch (_runner.status) {
         RunnerStatus.running => 'Pause',
         RunnerStatus.paused => 'Resume',
         RunnerStatus.waitingForTap => 'Continue',
@@ -177,7 +178,9 @@ class _RunningScreenState extends State<RunningScreen>
 
   /// The notification's button does what the main button on screen does.
   void _onNotificationAction() {
-    if (!mounted) return;
+    // The "Stop session?" dialog is up: don't resume or skip behind it. The
+    // button is hidden then, but a tap can still race the update.
+    if (!mounted || _confirmingStop) return;
     if (_runner.status == RunnerStatus.waitingForTap) {
       _runner.skipPhase();
     } else {
@@ -257,6 +260,9 @@ class _RunningScreenState extends State<RunningScreen>
       _confirmingStop = false;
       return;
     }
+    // Takes the button off the notification, also when pause() changed
+    // nothing (already paused, or waiting for a tap).
+    _background.update(_backgroundStatus());
     final bool stop;
     try {
       stop = await showConfirmDialog(
@@ -271,8 +277,14 @@ class _RunningScreenState extends State<RunningScreen>
     if (!mounted) return;
     if (stop) {
       _runner.stop();
-    } else if (wasRunning) {
+      return;
+    }
+    if (wasRunning) {
+      // Updates the notification, button included.
       _runner.resume();
+    } else {
+      // Nothing changes on the runner: put the button back by hand.
+      _background.update(_backgroundStatus());
     }
   }
 

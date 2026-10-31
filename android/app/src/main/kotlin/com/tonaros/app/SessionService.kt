@@ -35,6 +35,7 @@ class SessionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startPending = false
         // The latest content, not the start intent's: an update may have
         // arrived before the service got going.
         ServiceCompat.startForeground(
@@ -48,8 +49,9 @@ class SessionService : Service() {
             },
         )
         if (!running) {
-            // Stopped before the system got round to starting it. Still had
-            // to call startForeground: skipping it after startForegroundService
+            // Stopped before the system got round to starting it (stop()
+            // leaves the service to us then). Still had to call
+            // startForeground: skipping it after startForegroundService
             // crashes the app.
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -114,6 +116,14 @@ class SessionService : Service() {
         /** Whether a session is running, i.e. the notification should be up. */
         private var running = false
 
+        /**
+         * Whether startForegroundService was called and onStartCommand
+         * hasn't run yet. stop() must not stop the service then: stopped
+         * before it is created, it never gets to call startForeground, and
+         * Android (notably 8.x) kills the app for that.
+         */
+        private var startPending = false
+
         /** What the notification shows: the last start or update. */
         private var latest = Content("Tonaros", "", 0L, null)
 
@@ -140,6 +150,9 @@ class SessionService : Service() {
             } else {
                 context.startService(intent)
             }
+            // After the call, so a start that threw isn't waited on. Both
+            // this and onStartCommand run on the main thread.
+            startPending = true
         }
 
         /**
@@ -164,6 +177,9 @@ class SessionService : Service() {
         fun stop(context: Context) {
             running = false
             holdWakeLock(context, Hold.GRACE)
+            // A start still on its way: onStartCommand sees [running] is
+            // false and stops the service once it is in the foreground.
+            if (startPending) return
             context.stopService(Intent(context, SessionService::class.java))
         }
 
@@ -233,6 +249,9 @@ class SessionService : Service() {
                 .setOnlyAlertOnce(true)
                 .setSilent(true)
                 .setCategory(NotificationCompat.CATEGORY_WORKOUT)
+                // Phase, countdown and button on the lock screen too: the
+                // point is following the session with the screen off.
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
                 .apply {
                     if (endsAt > 0) {

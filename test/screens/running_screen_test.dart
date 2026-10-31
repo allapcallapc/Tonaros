@@ -432,6 +432,42 @@ void main() {
     expect(background.last!.text, isNot(startsWith('Tap to continue')));
   });
 
+  testWidgets('the notification button does nothing behind the stop dialog',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await elapse(tester, 3);
+    await tester.tap(find.byTooltip('Stop'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Stop session?'), findsOneWidget);
+    expect(background.last!.text, 'Paused · Hold · Rep 1/2 · A');
+    // No button while the dialog is up, and a tap racing that is ignored.
+    expect(background.last!.action, isNull);
+    background.tapAction!();
+    await tester.pump();
+    expect(background.last!.text, 'Paused · Hold · Rep 1/2 · A');
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(background.last!.action, 'Pause');
+    expect(background.last!.text, isNot(startsWith('Paused')));
+  });
+
+  testWidgets('cancelling the stop dialog while paused brings the button back',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await elapse(tester, 3);
+    background.tapAction!();
+    await tester.pump();
+    expect(background.last!.action, 'Resume');
+
+    await tester.tap(find.byTooltip('Stop'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(background.last!.action, isNull);
+    await tester.tap(find.text('Cancel'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(background.last!.action, 'Resume');
+  });
+
   testWidgets('stops the background session as soon as the session ends',
       (tester) async {
     await pumpRunning(
