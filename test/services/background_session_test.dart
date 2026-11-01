@@ -104,7 +104,7 @@ void main() {
 
   test('a start refused natively after it returned is retried on resume',
       () async {
-    final session = PlatformBackgroundSession();
+    final session = PlatformBackgroundSession(isInForeground: () => false);
     await session.start(status, onAction: (_) {}, onDismissed: () {});
     await fromNative('startFailed');
     // The service isn't running: updates would be ignored.
@@ -112,6 +112,36 @@ void main() {
     await session.ensureStarted(status);
     await session.stop();
     expect(calls, ['start', 'start', 'stop']);
+  });
+
+  test('a native refusal while in the foreground is retried at once, once',
+      () async {
+    final session = PlatformBackgroundSession(isInForeground: () => true);
+    await session.start(status, onAction: (_) {}, onDismissed: () {});
+    await fromNative('startFailed');
+    await pumpEventQueue();
+    expect(calls, ['start', 'start']);
+
+    // Refused again in the same foreground stretch: left to the next
+    // resume, not retried in a loop.
+    await fromNative('startFailed');
+    await pumpEventQueue();
+    expect(calls, ['start', 'start']);
+    await session.ensureStarted(status);
+    expect(calls, ['start', 'start', 'start']);
+    await session.stop();
+  });
+
+  test('overlapping resumes send a single start', () async {
+    final session = PlatformBackgroundSession(isInForeground: () => false);
+    startsToRefuse = 1;
+    await session.start(status, onAction: (_) {}, onDismissed: () {});
+    expect(calls, ['start']);
+
+    await Future.wait(
+        [session.ensureStarted(status), session.ensureStarted(status)]);
+    expect(calls, ['start', 'start']);
+    await session.stop();
   });
 
   test('a start refused after stop leaves nothing to retry', () async {

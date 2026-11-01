@@ -102,7 +102,8 @@ class SessionService : Service() {
         holdWakeLock(this, Hold.GRACE)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         // The engine (and the Dart session timer) may outlive the activity
-        // (see MainActivity.provideFlutterEngine), so stopping the service
+        // (see MainActivity.getCachedEngineId and
+        // shouldDestroyEngineWithHost), so stopping the service
         // isn't enough: tell Dart to end the session too, or its cues would
         // carry on with no notification to stop them. Dart saves the run,
         // then calls stop(), which stops the service: until then it keeps

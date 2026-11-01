@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import 'platform.dart';
@@ -77,6 +78,15 @@ abstract class BackgroundSession {
 }
 
 class PlatformBackgroundSession implements BackgroundSession {
+  PlatformBackgroundSession({bool Function()? isInForeground})
+      : _isInForeground = isInForeground ?? _appIsResumed;
+
+  static bool _appIsResumed() =>
+      SchedulerBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  /// Whether the app is in the foreground, where a native start can work.
+  final bool Function() _isInForeground;
+
   static const _channel = MethodChannel('com.tonaros/session');
 
   static bool get isSupported => isAndroidApp;
@@ -88,10 +98,26 @@ class PlatformBackgroundSession implements BackgroundSession {
   static PlatformBackgroundSession? _owner;
 
   /// Whether the last native start was refused, so the service isn't
-  /// running and updates would be ignored. Only [ensureStarted] tries again:
-  /// a refusal means the app was in the background, where Android 12+
-  /// refuses every start, so retrying on each update would only fail.
+  /// running and updates would be ignored. Not retried by updates: a
+  /// refusal usually means the app was in the background, where Android 12+
+  /// refuses every start, so retrying on each would only fail. Retried by
+  /// [ensureStarted] on resume, or at once if the refusal is reported while
+  /// the app is already in the foreground (see [_onStartFailed]).
   bool _startFailed = false;
+
+  /// The native start in flight, if any: a second start while one is
+  /// pending would only queue a second startForegroundService.
+  Future<void>? _starting;
+
+  /// Whether a refusal reported while in the foreground was already retried
+  /// since the last [ensureStarted] (i.e. resume): a refusal that isn't about
+  /// the background (e.g. the service type is rejected) would otherwise be
+  /// retried in a loop.
+  bool _retriedInForeground = false;
+
+  /// What the notification should show: the last start or update, also while
+  /// not started, for a retry.
+  BackgroundStatus? _latest;
 
   @override
   Future<void> start(
@@ -110,30 +136,65 @@ class PlatformBackgroundSession implements BackgroundSession {
           // Refused after 'start' had succeeded (the app went to the
           // background before the service got going).
           case 'startFailed':
-            if (_owner == this) _startFailed = true;
+            _onStartFailed();
         }
       });
     }
     return _start(status);
   }
 
-  Future<void> _start(BackgroundStatus status) async {
-    final started = await _call('start', status);
-    // Stopped or superseded meanwhile: nothing left to retry.
+  /// Starts the native side, or joins the start already in flight.
+  Future<void> _start(BackgroundStatus status) {
+    _latest = status;
+    return _starting ??= () async {
+      try {
+        final started = await _call('start', status);
+        // Stopped or superseded meanwhile: nothing left to retry.
+        if (_owner != this) return;
+        _startFailed = !started;
+      } finally {
+        _starting = null;
+      }
+    }();
+  }
+
+  /// The service was refused after 'start' had succeeded (e.g. the app went
+  /// to the background before it got going). Retried at once if the app is
+  /// in the foreground again, since nothing else would until the next
+  /// resume; otherwise by [ensureStarted] on that resume.
+  void _onStartFailed() {
     if (_owner != this) return;
-    _startFailed = !started;
+    _startFailed = true;
+    final latest = _latest;
+    if (latest != null && !_retriedInForeground && _isInForeground()) {
+      _retriedInForeground = true;
+      // Not awaited: this only reports the refusal to native.
+      _start(latest);
+    }
   }
 
   @override
   Future<void> update(BackgroundStatus status) async {
+    if (_owner != this) return;
+    _latest = status;
     // Not started: retried by ensureStarted once back in the foreground.
-    if (_owner != this || _startFailed) return;
+    if (_startFailed) return;
     await _call('update', status);
   }
 
   @override
   Future<void> ensureStarted(BackgroundStatus status) async {
-    if (_owner != this || !_startFailed) return;
+    if (_owner != this) return;
+    _retriedInForeground = false;
+    // A start in flight: it decides whether a retry is needed.
+    final starting = _starting;
+    if (starting != null) {
+      await starting;
+      // Refused all the same: once more, now from the foreground.
+      if (_owner != this || !_startFailed) return;
+    } else if (!_startFailed) {
+      return;
+    }
     return _start(status);
   }
 
@@ -142,6 +203,8 @@ class PlatformBackgroundSession implements BackgroundSession {
     if (_owner != this) return;
     _owner = null;
     _startFailed = false;
+    _retriedInForeground = false;
+    _latest = null;
     if (isSupported) _channel.setMethodCallHandler(null);
     await _call('stop');
   }

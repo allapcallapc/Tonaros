@@ -1,6 +1,7 @@
 package com.tonaros.app
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
@@ -16,6 +17,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.lang.ref.WeakReference
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.tonaros/updates"
@@ -70,7 +72,20 @@ class MainActivity : FlutterActivity() {
         SessionService.onDismissed = { sessionChannel.invokeMethod("dismissed", null) }
         // The service was refused after "start" had already succeeded: Dart
         // retries once the app is back in the foreground.
-        SessionService.onStartFailed = { sessionChannel.invokeMethod("startFailed", null) }
+        SessionService.onStartFailed = {
+            // No service, so nothing (no onTaskRemoved) would end the
+            // session if the app were swiped away: the engine goes with its
+            // activity again until a retried "start" caches it once more.
+            FlutterEngineCache.getInstance().remove(ENGINE_ID)
+            if (attachedHosts == 0) {
+                // Its activity is already gone: nothing can show or end the
+                // session, so don't leave it running headless.
+                clearSessionCallbacks()
+                flutterEngine.destroy()
+            } else {
+                sessionChannel.invokeMethod("startFailed", null)
+            }
+        }
         sessionChannel.setMethodCallHandler { call, result ->
             val title = call.argument<String>("title") ?: "Tonaros"
             val text = call.argument<String>("text") ?: ""
@@ -78,15 +93,21 @@ class MainActivity : FlutterActivity() {
             val action = call.argument<String>("action")
             when (call.method) {
                 "start" -> {
-                    // Dart calls "stop" when the session ends, even if the
-                    // service is refused here.
-                    FlutterEngineCache.getInstance().put(ENGINE_ID, flutterEngine)
                     try {
                         SessionService.start(appContext, title, text, endsAt, action)
-                        result.success(null)
                     } catch (e: RuntimeException) {
+                        // Not cached: with no service, nothing would end the
+                        // session if the app were swiped away, so the engine
+                        // must go with its activity.
                         result.error("START_FAILED", e.message, null)
+                        return@setMethodCallHandler
                     }
+                    // Only once the service is on its way: it ends the
+                    // session (onTaskRemoved) and so lets the engine go if
+                    // the app is swiped away. Removed again on "stop" or if
+                    // the service is refused later (onStartFailed).
+                    FlutterEngineCache.getInstance().put(ENGINE_ID, flutterEngine)
+                    result.success(null)
                 }
                 "update" -> {
                     SessionService.update(appContext, title, text, endsAt, action)
@@ -117,9 +138,11 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        // Only the application context, like the session handler: the engine
-        // may outlive this activity, and a session running in the background
-        // must not find the handler gone.
+        // The application context, like the session handler: the engine may
+        // outlive this activity, and a session running in the background
+        // must not find the handler gone. The activity only weakly, for the
+        // settings screen, so a destroyed one isn't kept alive.
+        val hostRef = WeakReference<Activity>(this)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
             when (call.method) {
                 "isInstallPermissionGranted" -> {
@@ -132,12 +155,21 @@ class MainActivity : FlutterActivity() {
                 }
                 "openInstallPermissionSettings" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        appContext.startActivity(
-                            Intent(
-                                android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                Uri.parse("package:${appContext.packageName}")
-                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        val intent = Intent(
+                            android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:${appContext.packageName}")
                         )
+                        // From the activity, so the settings screen opens in
+                        // the app's task and Back returns to the update
+                        // dialog. Only if its activity is gone (the engine
+                        // outlived it) from the application context, which
+                        // needs a task of its own.
+                        val host = hostRef.get()
+                        if (host != null && !host.isFinishing && !host.isDestroyed) {
+                            host.startActivity(intent)
+                        } else {
+                            appContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
                     }
                     result.success(null)
                 }
