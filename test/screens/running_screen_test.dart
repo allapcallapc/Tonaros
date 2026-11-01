@@ -352,7 +352,7 @@ void main() {
     await pumpRunning(
         tester, sampleSession(transition: const Transition.tap()));
     expect(background.running, isTrue);
-    expect(background.shown, ['Get ready']);
+    expect(background.shown, ['Get ready · A']);
 
     await elapse(tester, 3);
     await tester.tap(find.bySemanticsLabel('Pause'));
@@ -363,7 +363,7 @@ void main() {
       await elapse(tester, seconds);
     }
     expect(background.shown, [
-      'Get ready',
+      'Get ready · A',
       'Hold · Rep 1/2 · A',
       'Paused · Hold · Rep 1/2 · A',
       'Hold · Rep 1/2 · A',
@@ -487,6 +487,23 @@ void main() {
     expect(background.running, isFalse);
     await tester.pump(const Duration(seconds: 1));
     expect(find.byType(SummaryScreen), findsOneWidget);
+  });
+
+  testWidgets('swiping the app away saves the run before stopping',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    final history =
+        AppScope.read(tester.element(find.byType(RunningScreen))).history;
+    // With no activity left, stopping lets the engine go (MainActivity), so
+    // the run must be saved by then.
+    int? savedAtStop;
+    background.onStop = () => savedAtStop = history.entries.length;
+    await elapse(tester, 9); // first hold done
+    background.dismiss();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(background.running, isFalse);
+    expect(savedAtStop, 1);
   });
 
   testWidgets(

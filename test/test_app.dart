@@ -161,6 +161,12 @@ class FakeBackgroundSession implements BackgroundSession {
   Future<void> ensureStarted(BackgroundStatus status) async =>
       ensureStartedCalls++;
 
+  /// Runs when stop() is called, e.g. to check what was done by then.
+  VoidCallback? onStop;
+
   @override
-  Future<void> stop() async => running = false;
+  Future<void> stop() async {
+    running = false;
+    onStop?.call();
+  }
 }

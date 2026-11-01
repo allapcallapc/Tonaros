@@ -77,10 +77,6 @@ class _RunningScreenState extends State<RunningScreen>
 
   bool _backgroundStopped = false;
 
-  /// The runner's phase and status, and whether the "Stop session?" dialog
-  /// was up, when [_shown] was built; see [_syncBackground].
-  (int, RunnerStatus, bool)? _shownKey;
-
   @override
   void initState() {
     super.initState();
@@ -95,7 +91,6 @@ class _RunningScreenState extends State<RunningScreen>
     _runner.start();
     _runner.addListener(_onRunnerChanged);
     // Keep timing and cues going with the app in the background.
-    _shownKey = (_runner.index, _runner.status, _confirmingStop);
     _shown = _backgroundStatus();
     _background.start(
       _shown,
@@ -113,16 +108,6 @@ class _RunningScreenState extends State<RunningScreen>
   /// [_maxCountdownDrift]. Cheap enough to call on every change.
   void _syncBackground() {
     if (_backgroundStopped) return;
-    // What the text and button follow. While it's unchanged (e.g. on each
-    // second of a countdown) only the countdown can be off, so the text
-    // isn't rebuilt just to compare it.
-    final key = (_runner.index, _runner.status, _confirmingStop);
-    if (key == _shownKey &&
-        _shown.countdownCloseTo(_countdownEnd(),
-            tolerance: _maxCountdownDrift)) {
-      return;
-    }
-    _shownKey = key;
     final status = _backgroundStatus();
     if (status.looksLike(_shown, tolerance: _maxCountdownDrift)) return;
     _shown = status;
@@ -133,10 +118,19 @@ class _RunningScreenState extends State<RunningScreen>
   /// not just in [dispose]: with the app in the background the summary
   /// route's transition gets no frames, so this screen isn't disposed until
   /// the app is reopened, and the notification and wake lock would linger.
-  void _stopBackground() {
+  ///
+  /// With [after], the native session is only stopped once it completes
+  /// (the notification stops following the screen at once, though): with no
+  /// activity left, stopping lets the app's engine go (see MainActivity),
+  /// which would cut short e.g. saving the run to the history.
+  void _stopBackground({Future<void>? after}) {
     if (_backgroundStopped) return;
     _backgroundStopped = true;
-    _background.stop();
+    if (after == null) {
+      _background.stop();
+    } else {
+      after.whenComplete(_background.stop);
+    }
   }
 
   @override
@@ -205,9 +199,10 @@ class _RunningScreenState extends State<RunningScreen>
             ?_runner.setLabel,
             'Rep ${phase.rep}/${exercise.reps}',
           ],
-          // A timed transition: the exercise coming up, as on screen (and
-          // as when waiting for a tap).
-          if (phase.kind == PhaseKind.transition)
+          // Getting ready or a timed transition: the exercise coming up, as
+          // on screen (and as when waiting for a tap).
+          if (phase.kind == PhaseKind.transition ||
+              phase.kind == PhaseKind.getReady)
             _runner.displayExercise.name
           else if (phase.kind != PhaseKind.getReady)
             exercise.name,
@@ -258,8 +253,7 @@ class _RunningScreenState extends State<RunningScreen>
 
   void _onRunnerChanged() {
     if (_runner.status == RunnerStatus.finished) {
-      _stopBackground();
-      _record();
+      _stopBackground(after: _record());
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(

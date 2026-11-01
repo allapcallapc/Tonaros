@@ -32,12 +32,12 @@ class BackgroundStatus {
   bool looksLike(BackgroundStatus other,
           {Duration tolerance = Duration.zero}) =>
       this == other ||
-      (countdownCloseTo(other.endsAt, tolerance: tolerance) &&
+      (_countdownCloseTo(other.endsAt, tolerance: tolerance) &&
           this == other._withEndsAt(endsAt));
 
   /// Whether [endsAt] and [end] are both null, or no more than [tolerance]
   /// apart.
-  bool countdownCloseTo(DateTime? end, {Duration tolerance = Duration.zero}) {
+  bool _countdownCloseTo(DateTime? end, {Duration tolerance = Duration.zero}) {
     final mine = endsAt;
     if (mine == null || end == null) return mine == end;
     return mine.difference(end).abs() <= tolerance;

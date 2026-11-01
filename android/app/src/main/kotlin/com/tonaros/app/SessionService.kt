@@ -10,7 +10,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -95,15 +97,19 @@ class SessionService : Service() {
 
     /** The task was swiped away from recents: end the session with it. */
     override fun onTaskRemoved(rootIntent: Intent?) {
+        running = false
+        // A grace period, not released: Dart still has to save the run.
+        holdWakeLock(this, Hold.GRACE)
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         // The engine (and the Dart session timer) may outlive the activity
         // (see MainActivity.provideFlutterEngine), so stopping the service
         // isn't enough: tell Dart to end the session too, or its cues would
-        // carry on with no notification to stop them.
-        onDismissed?.invoke()
-        running = false
-        holdWakeLock(this, Hold.NONE)
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // carry on with no notification to stop them. Dart saves the run,
+        // then calls stop(), which stops the service: until then it keeps
+        // the process going (out of the foreground, so the system stops it
+        // after a while if that never comes).
+        val dismissed = onDismissed
+        if (dismissed != null) dismissed() else stopSelf()
         super.onTaskRemoved(rootIntent)
     }
 
@@ -168,6 +174,17 @@ class SessionService : Service() {
          */
         private var startPending = false
 
+        /** Counts starts, so a stale [START_TIMEOUT_MS] check can tell. */
+        private var startCount = 0
+
+        /**
+         * How long stop() waits for a pending start's onStartCommand before
+         * stopping the service anyway: the system requires startForeground
+         * within a few seconds of startForegroundService, so a start that
+         * hasn't got there by then has been dropped.
+         */
+        private const val START_TIMEOUT_MS = 15_000L
+
         /** What the notification shows: the last start or update. */
         private var latest = Content("Tonaros", "", 0L, null)
 
@@ -215,6 +232,7 @@ class SessionService : Service() {
             }
             // After the call, so a start that threw isn't waited on.
             startPending = true
+            startCount++
         }
 
         /**
@@ -239,13 +257,26 @@ class SessionService : Service() {
         fun stop(context: Context) {
             running = false
             holdWakeLock(context, Hold.GRACE)
-            // A start still on its way: onStartCommand sees [running] is
-            // false and stops the service once it is in the foreground.
-            if (startPending) return
-            context.stopService(Intent(context, SessionService::class.java))
             // Taken down with the service when it was in the foreground; this
-            // covers one posted without it.
+            // covers one posted without it. Harmless for a start still on its
+            // way: onStartCommand posts and removes its own.
             notificationManager(context).cancel(NOTIFICATION_ID)
+            if (startPending) {
+                // A start still on its way: onStartCommand sees [running] is
+                // false and stops the service once it is in the foreground.
+                // In case it never comes, stop the service later anyway, or
+                // [startPending] would keep every later stop() from doing so.
+                val app = context.applicationContext
+                val start = startCount
+                Handler(Looper.getMainLooper()).postDelayed({
+                    if (startPending && start == startCount && !running) {
+                        startPending = false
+                        app.stopService(Intent(app, SessionService::class.java))
+                    }
+                }, START_TIMEOUT_MS)
+                return
+            }
+            context.stopService(Intent(context, SessionService::class.java))
         }
 
         /**
