@@ -116,7 +116,7 @@ class SessionService : Service() {
     /** The notification's content; [endsAt] is 0 when not counting down. */
     private data class Content(val title: String, val text: String, val endsAt: Long, val action: String?)
 
-    private enum class Hold { COUNTING_DOWN, GRACE, NONE }
+    private enum class Hold { COUNTING_DOWN, GRACE }
 
     /**
      * The notification's Pause/Resume/Continue button. A broadcast rather
@@ -301,10 +301,6 @@ class SessionService : Service() {
                 }
                 // Only shortens a lock that is held; never takes a new one.
                 Hold.GRACE -> wakeLock?.let { if (it.isHeld) it.acquire(WAKE_LOCK_GRACE_MS) }
-                Hold.NONE -> {
-                    wakeLock?.let { if (it.isHeld) it.release() }
-                    wakeLock = null
-                }
             }
         }
 

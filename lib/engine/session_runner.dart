@@ -91,21 +91,28 @@ class SessionRunner extends ChangeNotifier {
   Phase? get nextPhase => _index + 1 < plan.length ? plan[_index + 1] : null;
   Exercise get exercise => session.exercises[phase.exerciseIndex];
 
-  /// The exercise to show for the current phase: its own, or for a
-  /// transition between exercises, the one coming next.
-  int get displayExerciseIndex {
-    if (phase.kind != PhaseKind.transition &&
-        phase.kind != PhaseKind.waitForTap) {
-      return phase.exerciseIndex;
-    }
+  /// Whether [kind] is a phase between exercises (get ready, a transition,
+  /// waiting for a tap) rather than part of one.
+  static bool isBetweenExercises(PhaseKind kind) =>
+      kind == PhaseKind.getReady ||
+      kind == PhaseKind.transition ||
+      kind == PhaseKind.waitForTap;
+
+  /// The exercise of the first phase after the current one that is part of
+  /// an exercise (skipping any between exercises); null if there is none.
+  int? get upcomingExerciseIndex {
     for (var i = _index + 1; i < plan.length; i++) {
       final p = plan[i];
-      if (p.kind != PhaseKind.transition && p.kind != PhaseKind.waitForTap) {
-        return p.exerciseIndex;
-      }
+      if (!isBetweenExercises(p.kind)) return p.exerciseIndex;
     }
-    return phase.exerciseIndex;
+    return null;
   }
+
+  /// The exercise to show for the current phase: its own, or between
+  /// exercises (get ready, a transition), the one coming next.
+  int get displayExerciseIndex => isBetweenExercises(phase.kind)
+      ? upcomingExerciseIndex ?? phase.exerciseIndex
+      : phase.exerciseIndex;
 
   /// The exercise at [displayExerciseIndex].
   Exercise get displayExercise => session.exercises[displayExerciseIndex];
@@ -236,8 +243,7 @@ class SessionRunner extends ChangeNotifier {
     var next = _index + 1;
     while (next < plan.length &&
         (plan[next].exerciseIndex <= current ||
-            plan[next].kind == PhaseKind.transition ||
-            plan[next].kind == PhaseKind.waitForTap)) {
+            isBetweenExercises(plan[next].kind))) {
       next++;
     }
     _moveTo(next, skipped: true);
@@ -278,10 +284,7 @@ class SessionRunner extends ChangeNotifier {
 
   /// Index in [plan] of the first phase of exercise [exerciseIndex].
   int _exerciseStart(int exerciseIndex) => plan.indexWhere((p) =>
-      p.exerciseIndex == exerciseIndex &&
-      p.kind != PhaseKind.getReady &&
-      p.kind != PhaseKind.transition &&
-      p.kind != PhaseKind.waitForTap);
+      p.exerciseIndex == exerciseIndex && !isBetweenExercises(p.kind));
 
   /// Ends the session early.
   void stop() {

@@ -1,7 +1,6 @@
 package com.tonaros.app
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
@@ -14,9 +13,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.lang.ref.WeakReference
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.tonaros/updates"
@@ -27,36 +26,17 @@ class MainActivity : FlutterActivity() {
      * - outlives this activity: the system may destroy the activity in the
      * background (memory pressure, "Don't keep activities") while
      * SessionService keeps the process alive, and the session must go on.
-     * A recreated activity attaches to the same engine, so the running
-     * screen is still there. Otherwise the engine goes with the activity, as
-     * usual (see [shouldDestroyEngineWithHost]); one left without an
-     * activity when the session ends is destroyed then (see "stop").
+     * So between Dart's "start" and "stop" the engine sits in
+     * [FlutterEngineCache], and a recreated activity attaches to it, with the
+     * running screen still there. Otherwise there is no cached engine and the
+     * activity builds and destroys its own, as usual.
      */
-    override fun provideFlutterEngine(context: Context): FlutterEngine {
-        // Here rather than in configureFlutterEngine: a new activity
-        // attaching detaches the previous one in between, and the previous
-        // one must see the engine is taken.
-        host = WeakReference(this)
-        return engine ?: FlutterEngine(
-            context.applicationContext,
-            // As FlutterActivity builds its own engine: with the launch
-            // intent's shell args (e.g. from `flutter run`), and state
-            // restoration as configured. Plugins are registered here, once
-            // per engine: super.configureFlutterEngine skips registering
-            // them for an engine provided by the host, as this one is.
-            flutterShellArgs.toArray(),
-            true,
-            shouldRestoreAndSaveState(),
-        ).also { engine = it }
-    }
+    override fun getCachedEngineId(): String? =
+        ENGINE_ID.takeIf { FlutterEngineCache.getInstance().contains(it) }
 
-    /**
-     * Not while a session runs (it goes on in the background), another
-     * activity has taken the engine over, or this one is only being
-     * recreated for a configuration change (the new one takes it).
-     */
+    /** Not while the engine is cached: a session is running in it. */
     override fun shouldDestroyEngineWithHost(): Boolean =
-        !sessionActive && !isChangingConfigurations && host?.get().let { it == null || it === this }
+        !FlutterEngineCache.getInstance().contains(ENGINE_ID)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,11 +50,12 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        attachedHosts++
         // Called again for each activity attaching to the engine: the
         // handlers below always belong to the current one.
         //
         // The session handler must not reference this activity: the engine
-        // keeps it, and may outlive the activity (see provideFlutterEngine),
+        // keeps it, and may outlive the activity (see getCachedEngineId),
         // so only the application context is used.
         val appContext = applicationContext
 
@@ -99,7 +80,7 @@ class MainActivity : FlutterActivity() {
                 "start" -> {
                     // Dart calls "stop" when the session ends, even if the
                     // service is refused here.
-                    sessionActive = true
+                    FlutterEngineCache.getInstance().put(ENGINE_ID, flutterEngine)
                     try {
                         SessionService.start(appContext, title, text, endsAt, action)
                         result.success(null)
@@ -112,15 +93,19 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "stop" -> {
-                    sessionActive = false
+                    // From now on the engine goes with its activity again.
+                    FlutterEngineCache.getInstance().remove(ENGINE_ID)
                     SessionService.stop(appContext)
                     result.success(null)
                     // The session ended with no activity left (the system
                     // destroyed it in the background, or the app was swiped
                     // away): don't keep its isolate and screens for the next
-                    // launch. Posted: not from inside the engine's own call.
-                    Handler(Looper.getMainLooper()).post {
-                        if (!sessionActive && host?.get() == null) destroyRetainedEngine()
+                    // launch. Decided now - no activity can attach to it any
+                    // more - but posted: not from inside the engine's own
+                    // call.
+                    if (attachedHosts == 0) {
+                        clearSessionCallbacks()
+                        Handler(Looper.getMainLooper()).post { flutterEngine.destroy() }
                     }
                 }
                 else -> result.notImplemented()
@@ -172,14 +157,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
-        // Not when another activity has already taken the engine over.
-        if (host?.get() === this) host = null
-        // Otherwise the engine (and a running session) live on, and the next
-        // activity picks them up.
-        if (shouldDestroyEngineWithHost()) {
-            clearSessionCallbacks()
-            engine = null
-        }
+        attachedHosts--
+        // The engine is about to be destroyed with this activity.
+        if (shouldDestroyEngineWithHost()) clearSessionCallbacks()
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
@@ -203,32 +183,20 @@ class MainActivity : FlutterActivity() {
     }
 
     private companion object {
-        /** See [provideFlutterEngine]. */
-        var engine: FlutterEngine? = null
+        /** The [FlutterEngineCache] id of the engine a session runs in. */
+        const val ENGINE_ID = "session"
 
         /**
-         * The activity using [engine], if any. Weak, so a missed clean-up
-         * can't leak it.
+         * Activities attached to the engine: from [configureFlutterEngine]
+         * to [cleanUpFlutterEngine]. Can briefly be 2 while a new activity
+         * takes the cached engine over from an old one.
          */
-        var host: WeakReference<MainActivity>? = null
-
-        /**
-         * Between Dart's "start" and "stop": a session is running in
-         * [engine], which must outlive the activity until it ends.
-         */
-        var sessionActive = false
+        var attachedHosts = 0
 
         fun clearSessionCallbacks() {
             SessionService.onAction = null
             SessionService.onDismissed = null
             SessionService.onStartFailed = null
-        }
-
-        /** Destroys [engine] while no activity uses it; see "stop". */
-        fun destroyRetainedEngine() {
-            clearSessionCallbacks()
-            engine?.destroy()
-            engine = null
         }
 
         /** Unlikely to collide with the request codes plugins use. */

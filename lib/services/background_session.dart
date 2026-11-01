@@ -31,9 +31,10 @@ class BackgroundStatus {
   /// small drift isn't worth an update).
   bool looksLike(BackgroundStatus other,
           {Duration tolerance = Duration.zero}) =>
-      this == other ||
-      (_countdownCloseTo(other.endsAt, tolerance: tolerance) &&
-          this == other._withEndsAt(endsAt));
+      title == other.title &&
+      text == other.text &&
+      action == other.action &&
+      _countdownCloseTo(other.endsAt, tolerance: tolerance);
 
   /// Whether [endsAt] and [end] are both null, or no more than [tolerance]
   /// apart.
@@ -43,18 +44,12 @@ class BackgroundStatus {
     return mine.difference(end).abs() <= tolerance;
   }
 
-  BackgroundStatus _withEndsAt(DateTime? endsAt) => BackgroundStatus(
-      title: title, text: text, endsAt: endsAt, action: action);
-
-  /// Every field: what [looksLike] compares, beyond the countdown.
-  List<Object?> get _fields => [title, text, endsAt, action];
-
   @override
   bool operator ==(Object other) =>
-      other is BackgroundStatus && listEquals(other._fields, _fields);
+      other is BackgroundStatus && looksLike(other);
 
   @override
-  int get hashCode => Object.hashAll(_fields);
+  int get hashCode => Object.hash(title, text, endsAt, action);
 }
 
 /// Keeps a running session alive with the app in the background or the

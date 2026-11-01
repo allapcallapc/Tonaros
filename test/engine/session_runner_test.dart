@@ -290,6 +290,27 @@ void main() {
     expect(runner.displayExerciseIndex, 1);
   });
 
+  test('get ready shows the first exercise with phases of its own', () {
+    // A has a 0 s hold and no rests: no phases, so B comes first.
+    setUpRunner(Session(id: 's', name: 'S', exercises: [
+      const HoldExercise(
+        id: 'a',
+        name: 'A',
+        sets: 1,
+        restBetweenSets: 0,
+        transition: Transition.countdown(0),
+        reps: 1,
+        holdSeconds: 0,
+        restBetweenReps: 0,
+      ),
+      sampleSession().exercises[1],
+    ]));
+    runner.start();
+    expect(runner.phase.kind, PhaseKind.getReady);
+    expect(runner.displayExerciseIndex, 1);
+    expect(runner.upcomingExerciseIndex, 1);
+  });
+
   test('skip exercise from get ready or a transition skips the one shown',
       () {
     setUpRunner(sampleSession());

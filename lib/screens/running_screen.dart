@@ -75,6 +75,10 @@ class _RunningScreenState extends State<RunningScreen>
   /// changed, and the countdown is drawn from the wall clock.
   static const _maxCountdownDrift = Duration(seconds: 1);
 
+  /// The longest the background session is kept up after the session ends
+  /// while the run is being saved (see [_stopBackground]).
+  static const _maxStopDelay = Duration(seconds: 10);
+
   bool _backgroundStopped = false;
 
   @override
@@ -129,7 +133,11 @@ class _RunningScreenState extends State<RunningScreen>
     if (after == null) {
       _background.stop();
     } else {
-      after.whenComplete(_background.stop);
+      // Bounded: a write that never completes must not leave the service
+      // and its notification up for good.
+      after.timeout(_maxStopDelay, onTimeout: () {}).whenComplete(
+        _background.stop,
+      );
     }
   }
 
@@ -171,7 +179,6 @@ class _RunningScreenState extends State<RunningScreen>
   BackgroundStatus _backgroundStatus() {
     final phase = _runner.phase;
     final exercise = _runner.exercise;
-    final paused = _runner.status == RunnerStatus.paused;
     final String text;
     switch (_runner.status) {
       case RunnerStatus.waitingForTap:
@@ -189,7 +196,7 @@ class _RunningScreenState extends State<RunningScreen>
         };
       default:
         text = [
-          if (paused) 'Paused',
+          if (_runner.paused) 'Paused',
           phase.label,
           // A timed rest between sets: the set coming up, not the last
           // set's final rep.
@@ -199,13 +206,9 @@ class _RunningScreenState extends State<RunningScreen>
             ?_runner.setLabel,
             'Rep ${phase.rep}/${exercise.reps}',
           ],
-          // Getting ready or a timed transition: the exercise coming up, as
-          // on screen (and as when waiting for a tap).
-          if (phase.kind == PhaseKind.transition ||
-              phase.kind == PhaseKind.getReady)
-            _runner.displayExercise.name
-          else if (phase.kind != PhaseKind.getReady)
-            exercise.name,
+          // As on screen: the phase's own exercise, or getting ready and
+          // during a timed transition, the one coming up.
+          _runner.displayExercise.name,
         ].join(' · ');
     }
     return BackgroundStatus(
@@ -696,26 +699,20 @@ class _NextUp extends StatelessWidget {
     final current = runner.phase.kind;
     final textTheme = Theme.of(context).textTheme;
     final exercises = runner.session.exercises;
-    bool between(PhaseKind k) =>
-        k == PhaseKind.getReady ||
-        k == PhaseKind.transition ||
-        k == PhaseKind.waitForTap;
     final String text;
     Color? dot;
     if (next == null) {
       text = 'Next: done!';
-    } else if (between(current)) {
+    } else if (SessionRunner.isBetweenExercises(current)) {
       // Get ready / transition: what exercise is coming.
-      text = 'Next: ${exercises[next.exerciseIndex].name}';
+      text = 'Next: ${runner.displayExercise.name}';
       dot = PhaseColors.of(next.kind);
-    } else if (between(next.kind) ||
+    } else if (SessionRunner.isBetweenExercises(next.kind) ||
         next.exerciseIndex != runner.phase.exerciseIndex) {
       // Last phase of this exercise: name the next exercise, past any
       // transition.
-      final first = runner.plan
-          .skip(runner.index + 1)
-          .firstWhere((p) => !between(p.kind), orElse: () => next);
-      text = 'Next: ${exercises[first.exerciseIndex].name}';
+      final upcoming = runner.upcomingExerciseIndex ?? next.exerciseIndex;
+      text = 'Next: ${exercises[upcoming].name}';
       dot = PhaseColors.of(next.kind);
     } else if (next.waitsForTap) {
       text = 'Next: ${next.label} (tap)';
