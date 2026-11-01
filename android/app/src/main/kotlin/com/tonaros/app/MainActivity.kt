@@ -29,7 +29,16 @@ class MainActivity : FlutterActivity() {
      * for good (see [shouldDestroyEngineWithHost]).
      */
     override fun provideFlutterEngine(context: Context): FlutterEngine =
-        engine ?: FlutterEngine(context.applicationContext).also { engine = it }
+        engine ?: FlutterEngine(
+            context.applicationContext,
+            // As FlutterActivity builds its own engine: with the launch
+            // intent's shell args (e.g. from `flutter run`), plugins
+            // registered once (by super.configureFlutterEngine, not here as
+            // well), and state restoration as configured.
+            flutterShellArgs.toArray(),
+            false,
+            shouldRestoreAndSaveState(),
+        ).also { engine = it }
 
     override fun shouldDestroyEngineWithHost(): Boolean = isFinishedForGood()
 
@@ -60,7 +69,9 @@ class MainActivity : FlutterActivity() {
         // and lib/services/background_session.dart.
         val sessionChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, sessionChannelName)
         // The notification's Pause/Resume/Continue button.
-        SessionService.onAction = { sessionChannel.invokeMethod("action", null) }
+        SessionService.onAction = { label -> sessionChannel.invokeMethod("action", label) }
+        // Swiped away from recents: end the Dart session with the service.
+        SessionService.onDismissed = { sessionChannel.invokeMethod("dismissed", null) }
         sessionChannel.setMethodCallHandler { call, result ->
             val title = call.argument<String>("title") ?: "Tonaros"
             val text = call.argument<String>("text") ?: ""
@@ -139,6 +150,7 @@ class MainActivity : FlutterActivity() {
         // and the next activity picks them up.
         if (isFinishedForGood()) {
             SessionService.onAction = null
+            SessionService.onDismissed = null
             // The engine (and the Dart session with it) is going away, so the
             // running screen will never stop the service itself: don't leave
             // its notification, dead button and wake lock behind.

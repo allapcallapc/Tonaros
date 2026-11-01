@@ -417,7 +417,7 @@ void main() {
     expect(background.last!.action, 'Pause');
     expect(background.last!.endsAt, isNotNull);
 
-    background.tapAction!();
+    background.tapAction();
     await tester.pump();
     expect(find.bySemanticsLabel('Resume'), findsOneWidget);
     expect(background.last!.text, 'Paused · Hold · Rep 1/2 · A');
@@ -425,7 +425,7 @@ void main() {
     // Nothing to count down: no countdown, so no wake lock either.
     expect(background.last!.endsAt, isNull);
 
-    background.tapAction!();
+    background.tapAction();
     await tester.pump();
     expect(background.last!.action, 'Pause');
     for (final seconds in [5, 3, 5]) {
@@ -435,10 +435,71 @@ void main() {
     expect(background.last!.action, 'Continue');
     expect(background.last!.endsAt, isNull);
 
-    background.tapAction!();
+    background.tapAction();
     await tester.pump();
     expect(background.last!.action, 'Pause');
     expect(background.last!.text, isNot(startsWith('Tap to continue')));
+  });
+
+  testWidgets('an out-of-date notification button does nothing',
+      (tester) async {
+    await pumpRunning(
+        tester, sampleSession(transition: const Transition.tap()));
+    await elapse(tester, 3);
+    // Paused on screen, but the notification still says "Pause": tapping it
+    // must not resume.
+    await tester.tap(find.bySemanticsLabel('Pause'));
+    await tester.pump();
+    expect(background.last!.action, 'Resume');
+    background.tapLabel('Pause');
+    await tester.pump();
+    expect(find.bySemanticsLabel('Resume'), findsOneWidget);
+
+    // Waiting for a tap, but the notification still says "Resume" or
+    // "Pause": the wait isn't skipped.
+    background.tapAction();
+    await tester.pump();
+    for (final seconds in [5, 3, 5]) {
+      await elapse(tester, seconds);
+    }
+    expect(background.last!.action, 'Continue');
+    background.tapLabel('Pause');
+    background.tapLabel('Resume');
+    await tester.pump();
+    expect(background.last!.action, 'Continue');
+    expect(find.text('Continue'), findsOneWidget);
+  });
+
+  testWidgets('swiping the app away ends the session', (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await elapse(tester, 3);
+    background.dismiss();
+    await tester.pump();
+    expect(background.running, isFalse);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(SummaryScreen), findsOneWidget);
+  });
+
+  testWidgets(
+      'on resume: keeps the screen awake again, resyncs the notification '
+      'and retries a refused start', (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await elapse(tester, 3);
+    // E.g. the activity was recreated without the keep-awake flag.
+    cues.keepAwake = false;
+    final endsAt = background.last!.endsAt!;
+    final updates = background.updates;
+    // The wall clock was set forward while the app was away: the runner
+    // (on its own clock) changes nothing, but the countdown is off.
+    wallClockFrozenAt = clock.now + const Duration(seconds: 5);
+    wallClockFrozen = true;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(cues.keepAwake, isTrue);
+    expect(background.ensureStartedCalls, 1);
+    expect(background.updates, updates + 1);
+    expect(background.last!.endsAt!.difference(endsAt),
+        const Duration(seconds: 5));
   });
 
   testWidgets('the notification button does nothing behind the stop dialog',
@@ -451,7 +512,7 @@ void main() {
     expect(background.last!.text, 'Paused · Hold · Rep 1/2 · A');
     // No button while the dialog is up, and a tap racing that is ignored.
     expect(background.last!.action, isNull);
-    background.tapAction!();
+    background.tapLabel('Pause');
     await tester.pump();
     expect(background.last!.text, 'Paused · Hold · Rep 1/2 · A');
 
@@ -465,7 +526,7 @@ void main() {
       (tester) async {
     await pumpRunning(tester, sampleSession());
     await elapse(tester, 3);
-    background.tapAction!();
+    background.tapAction();
     await tester.pump();
     expect(background.last!.action, 'Resume');
 

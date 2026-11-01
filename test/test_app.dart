@@ -120,14 +120,28 @@ class FakeBackgroundSession implements BackgroundSession {
   /// How many times update() was called.
   int updates = 0;
 
-  /// Taps the notification's button.
-  VoidCallback? tapAction;
+  /// Taps the notification's button as it is currently labelled.
+  void tapAction() => tapLabel(last?.action);
+
+  /// Taps the notification's button showing [label], e.g. one the latest
+  /// update hasn't replaced yet.
+  void tapLabel(String? label) => _onAction!(label);
+
+  /// Swipes the app away from recents.
+  void dismiss() => _onDismissed!();
+
+  ValueChanged<String?>? _onAction;
+  VoidCallback? _onDismissed;
 
   @override
-  Future<void> start(BackgroundStatus status,
-      {required VoidCallback onAction}) async {
+  Future<void> start(
+    BackgroundStatus status, {
+    required ValueChanged<String?> onAction,
+    required VoidCallback onDismissed,
+  }) async {
     running = true;
-    tapAction = onAction;
+    _onAction = onAction;
+    _onDismissed = onDismissed;
     last = status;
     shown.add(status.text);
   }

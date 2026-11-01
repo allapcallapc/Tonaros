@@ -12,6 +12,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 
@@ -38,17 +39,31 @@ class SessionService : Service() {
         startPending = false
         // The latest content, not the start intent's: an update may have
         // arrived before the service got going.
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            buildNotification(this, latest),
-            // The type is required from Android 14; before that, none.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            } else {
-                0
-            },
-        )
+        try {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                buildNotification(this, latest),
+                // The type is required from Android 14; before that, none.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                } else {
+                    0
+                },
+            )
+        } catch (e: RuntimeException) {
+            // Refused after all, e.g. the app went to the background (Android
+            // 12+) before the system got round to this, or the service type
+            // isn't accepted. Thrown here, it would crash the app and end the
+            // session; without the service the session still runs in the
+            // foreground. Updates are ignored from now on, so they can't
+            // post a notification with no service behind it.
+            Log.w(TAG, "startForeground refused", e)
+            running = false
+            holdWakeLock(this, Hold.GRACE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (!running) {
             // Stopped before the system got round to starting it (stop()
             // leaves the service to us then). Still had to call
@@ -74,6 +89,11 @@ class SessionService : Service() {
 
     /** The task was swiped away from recents: end the session with it. */
     override fun onTaskRemoved(rootIntent: Intent?) {
+        // The engine (and the Dart session timer) may outlive the activity
+        // (see MainActivity.provideFlutterEngine), so stopping the service
+        // isn't enough: tell Dart to end the session too, or its cues would
+        // carry on with no notification to stop them.
+        onDismissed?.invoke()
         running = false
         holdWakeLock(this, Hold.NONE)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -97,8 +117,9 @@ class SessionService : Service() {
             if (intent.action != ACTION_PRIMARY) return
             if (running) {
                 // Handled by the running screen in Dart, which then updates
-                // the notification.
-                onAction?.invoke()
+                // the notification. Passes on the tapped label, so a tap on
+                // one that is already out of date does nothing.
+                onAction?.invoke(intent.getStringExtra(EXTRA_LABEL))
             } else {
                 // Left over from a session that has ended: take it down.
                 notificationManager(context).cancel(NOTIFICATION_ID)
@@ -110,9 +131,17 @@ class SessionService : Service() {
         private const val CHANNEL_ID = "session"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_PRIMARY = "com.tonaros.app.SESSION_PRIMARY"
+        private const val EXTRA_LABEL = "label"
+        private const val TAG = "SessionService"
 
-        /** Called (on the main thread) when the notification's button is tapped. */
-        var onAction: (() -> Unit)? = null
+        /**
+         * Called (on the main thread) when the notification's button is
+         * tapped, with the label it showed.
+         */
+        var onAction: ((String?) -> Unit)? = null
+
+        /** Called (on the main thread) when the app is swiped away from recents. */
+        var onDismissed: (() -> Unit)? = null
 
         /** Whether a session is running, i.e. the notification should be up. */
         private var running = false
@@ -135,7 +164,13 @@ class SessionService : Service() {
         /** Created once per process, see [buildNotification]. */
         private var channelCreated = false
         private var openAppIntent: PendingIntent? = null
-        private var primaryIntent: PendingIntent? = null
+
+        /**
+         * One per button label, so each carries its own label: a single
+         * PendingIntent updated in place would hand an older notification's
+         * button the newest label.
+         */
+        private val primaryIntents = mutableMapOf<String, PendingIntent>()
 
         /** Long enough for a phase's start cue to be played. */
         private const val WAKE_LOCK_GRACE_MS = 5_000L
@@ -283,12 +318,19 @@ class SessionService : Service() {
                         setShowWhen(false)
                     }
                     if (action != null) {
-                        val primary = primaryIntent ?: PendingIntent.getBroadcast(
-                            app,
-                            1,
-                            Intent(app, ActionReceiver::class.java).setAction(ACTION_PRIMARY),
-                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                        ).also { primaryIntent = it }
+                        val primary = primaryIntents.getOrPut(action) {
+                            PendingIntent.getBroadcast(
+                                app,
+                                // Distinct request codes keep them distinct
+                                // PendingIntents (extras don't count); the
+                                // same per label in every process.
+                                action.hashCode(),
+                                Intent(app, ActionReceiver::class.java)
+                                    .setAction(ACTION_PRIMARY)
+                                    .putExtra(EXTRA_LABEL, action),
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                            )
+                        }
                         addAction(0, action, primary)
                     }
                 }

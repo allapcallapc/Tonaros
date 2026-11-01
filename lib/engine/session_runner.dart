@@ -107,6 +107,15 @@ class SessionRunner extends ChangeNotifier {
     return phase.exerciseIndex;
   }
 
+  /// The exercise at [displayExerciseIndex].
+  Exercise get displayExercise => session.exercises[displayExerciseIndex];
+
+  /// "Set 2/3" during an exercise's reps, if it has more than one set; null
+  /// otherwise. The running screen and its notification both show it.
+  String? get setLabel => phase.rep > 0 && exercise.sets > 1
+      ? 'Set ${phase.set}/${exercise.sets}'
+      : null;
+
   /// When the current phase ends on [_clock], while running.
   Duration? _phaseEnd;
 

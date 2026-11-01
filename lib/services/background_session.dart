@@ -50,8 +50,15 @@ class BackgroundStatus {
 /// this is a foreground service (android/.../SessionService.kt) with an
 /// ongoing notification; elsewhere it does nothing.
 abstract class BackgroundSession {
-  /// Starts it; [onAction] runs when the notification's button is tapped.
-  Future<void> start(BackgroundStatus status, {required VoidCallback onAction});
+  /// Starts it. [onAction] runs when the notification's button is tapped,
+  /// with the label the tapped button showed (null if unknown), so a tap on
+  /// a label that is already out of date can be ignored. [onDismissed] runs
+  /// when the app is swiped away from recents, which ends the session.
+  Future<void> start(
+    BackgroundStatus status, {
+    required ValueChanged<String?> onAction,
+    required VoidCallback onDismissed,
+  });
   Future<void> update(BackgroundStatus status);
 
   /// Called when the app comes back to the foreground: starts it again if
@@ -74,17 +81,26 @@ class PlatformBackgroundSession implements BackgroundSession {
   static PlatformBackgroundSession? _owner;
 
   /// Whether the last native start was refused, so the service isn't
-  /// running and updates would be ignored: the next update (and
-  /// [ensureStarted]) tries to start it again instead.
+  /// running and updates would be ignored. Only [ensureStarted] tries again:
+  /// a refusal means the app was in the background, where Android 12+
+  /// refuses every start, so retrying on each update would only fail.
   bool _startFailed = false;
 
   @override
-  Future<void> start(BackgroundStatus status,
-      {required VoidCallback onAction}) {
+  Future<void> start(
+    BackgroundStatus status, {
+    required ValueChanged<String?> onAction,
+    required VoidCallback onDismissed,
+  }) {
     _owner = this;
     if (isSupported) {
       _channel.setMethodCallHandler((call) async {
-        if (call.method == 'action') onAction();
+        switch (call.method) {
+          case 'action':
+            onAction(call.arguments as String?);
+          case 'dismissed':
+            onDismissed();
+        }
       });
     }
     return _start(status);
@@ -96,8 +112,8 @@ class PlatformBackgroundSession implements BackgroundSession {
 
   @override
   Future<void> update(BackgroundStatus status) async {
-    if (_owner != this) return;
-    if (_startFailed) return _start(status);
+    // Not started: retried by ensureStarted once back in the foreground.
+    if (_owner != this || _startFailed) return;
     await _call('update', status);
   }
 

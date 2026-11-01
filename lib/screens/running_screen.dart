@@ -92,7 +92,15 @@ class _RunningScreenState extends State<RunningScreen>
     _runner.addListener(_onRunnerChanged);
     // Keep timing and cues going with the app in the background.
     _shown = _backgroundStatus();
-    _background.start(_shown, onAction: _onNotificationAction);
+    _background.start(
+      _shown,
+      onAction: _onNotificationAction,
+      // Swiped away from recents: the service is gone, so end the session
+      // rather than carry on with no notification or wake lock.
+      onDismissed: () {
+        if (mounted) _runner.stop();
+      },
+    );
   }
 
   /// Brings the notification in line with the screen, if anything it shows
@@ -133,10 +141,17 @@ class _RunningScreenState extends State<RunningScreen>
     // rather than on the next timer tick.
     if (state == AppLifecycleState.resumed) {
       _runner.tick();
-      // A start refused because the app was already in the background is
-      // retried now that it's back.
       if (!_backgroundStopped) {
-        _shown = _backgroundStatus();
+        // The activity may have been destroyed and recreated in the
+        // background (the engine outlives it): keep-awake is a flag on the
+        // activity's window, so set it on the new one.
+        _cueOutput.setKeepAwake(true);
+        // Resends the notification if its countdown is off (the timer ran
+        // late, or the wall clock changed) without the runner changing, so
+        // no listener fired.
+        _syncBackground();
+        // A start refused because the app was already in the background is
+        // retried now that it's back.
         _background.ensureStarted(_shown);
       }
     }
@@ -154,8 +169,7 @@ class _RunningScreenState extends State<RunningScreen>
         final next = _runner.nextPhase;
         // As on screen: the next exercise with phases of its own, skipping
         // any that have none.
-        final nextExercise =
-            widget.session.exercises[_runner.displayExerciseIndex];
+        final nextExercise = _runner.displayExercise;
         text = switch (next) {
           null => 'Tap to continue',
           // A tap rest between sets: the next set of the same exercise.
@@ -173,7 +187,7 @@ class _RunningScreenState extends State<RunningScreen>
           if (phase.kind == PhaseKind.setRest)
             'Next: Set ${phase.set + 1}/${exercise.sets}'
           else if (phase.rep > 0) ...[
-            if (exercise.sets > 1) 'Set ${phase.set}/${exercise.sets}',
+            ?_runner.setLabel,
             'Rep ${phase.rep}/${exercise.reps}',
           ],
           if (phase.kind != PhaseKind.getReady &&
@@ -184,16 +198,21 @@ class _RunningScreenState extends State<RunningScreen>
     return BackgroundStatus(
       title: widget.session.name,
       text: text,
-      // No button while the "Stop session?" dialog is up.
-      action: _confirmingStop ? null : switch (_runner.status) {
-        RunnerStatus.running => 'Pause',
-        RunnerStatus.paused => 'Resume',
-        RunnerStatus.waitingForTap => 'Continue',
-        RunnerStatus.finished => null,
-      },
+      action: _actionLabel(),
       endsAt: _countdownEnd(),
     );
   }
+
+  /// The notification button's label, mirroring the main button on screen;
+  /// none while the "Stop session?" dialog is up.
+  String? _actionLabel() => _confirmingStop
+      ? null
+      : switch (_runner.status) {
+          RunnerStatus.running => 'Pause',
+          RunnerStatus.paused => 'Resume',
+          RunnerStatus.waitingForTap => 'Continue',
+          RunnerStatus.finished => null,
+        };
 
   /// When the current phase ends by the wall clock, not the runner's: the
   /// system draws the countdown from it. Null unless counting down.
@@ -201,11 +220,17 @@ class _RunningScreenState extends State<RunningScreen>
       ? (widget.now ?? DateTime.now)().add(_runner.remaining)
       : null;
 
-  /// The notification's button does what the main button on screen does.
-  void _onNotificationAction() {
-    // The "Stop session?" dialog is up: don't resume or skip behind it. The
-    // button is hidden then, but a tap can still race the update.
-    if (!mounted || _confirmingStop) return;
+  /// The notification's button does what the main button on screen does,
+  /// if it still says so: a tap can race an update (the phase ended, or the
+  /// session was paused on screen), and "Pause" must never resume or skip.
+  /// [label] is the tapped button's label; null if unknown.
+  void _onNotificationAction(String? label) {
+    if (!mounted) return;
+    // Also covers the "Stop session?" dialog being up (no button then): don't
+    // resume or skip behind it.
+    final current = _actionLabel();
+    // The update with the right label is already on its way.
+    if (current == null || (label != null && label != current)) return;
     if (_runner.status == RunnerStatus.waitingForTap) {
       _runner.skipPhase();
     } else {
@@ -315,6 +340,7 @@ class _RunningScreenState extends State<RunningScreen>
     final exerciseCount = widget.session.exercises.length;
     // During a transition, the exercise coming up (as on get ready).
     final shownIndex = runner.displayExerciseIndex;
+    final setLabel = runner.setLabel;
     final textTheme = Theme.of(context).textTheme;
     final colors = Theme.of(context).colorScheme;
     final showTempoLook = isTempo && inExercise;
@@ -357,7 +383,7 @@ class _RunningScreenState extends State<RunningScreen>
                         ?.copyWith(color: colors.onSurfaceVariant),
                   ),
                   Text(
-                    widget.session.exercises[shownIndex].name,
+                    runner.displayExercise.name,
                     style: textTheme.headlineSmall,
                     textAlign: TextAlign.center,
                     maxLines: 2,
@@ -365,9 +391,8 @@ class _RunningScreenState extends State<RunningScreen>
                   ),
                   SizedBox(
                     height: 24,
-                    child: inExercise && exercise.sets > 1
-                        ? Text('Set ${phase.set}/${exercise.sets}',
-                            style: textTheme.titleMedium)
+                    child: setLabel != null
+                        ? Text(setLabel, style: textTheme.titleMedium)
                         : null,
                   ),
                   const SizedBox(height: 8),
