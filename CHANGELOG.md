@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/allapcallapc/Tonaros/compare/v0.7.0...v0.8.0) (2026-11-01)
+
+
+### Features
+
+* keep sessions running in the background on Android ([#8](https://github.com/allapcallapc/Tonaros/issues/8)) ([30e4685](https://github.com/allapcallapc/Tonaros/commit/30e4685ccb711994f4a97902051faea4da438de0))
+
 ## [0.7.0](https://github.com/allapcallapc/Tonaros/compare/v0.6.0...v0.7.0) (2026-10-24)
 
 
