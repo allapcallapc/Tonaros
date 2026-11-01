@@ -380,6 +380,15 @@ void main() {
     expect(background.running, isFalse);
   });
 
+  testWidgets('a timed transition names the exercise coming up',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    for (final seconds in [3, 5, 3, 5]) {
+      await elapse(tester, seconds);
+    }
+    expect(background.shown.last, 'Next exercise · B');
+  });
+
   testWidgets('a tap rest between sets shows Continue and names the next set',
       (tester) async {
     await pumpRunning(

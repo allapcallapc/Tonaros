@@ -57,11 +57,17 @@ class SessionService : Service() {
             // isn't accepted. Thrown here, it would crash the app and end the
             // session; without the service the session still runs in the
             // foreground. Updates are ignored from now on, so they can't
-            // post a notification with no service behind it.
+            // post a notification with no service behind it, and Dart is
+            // told, to start it again once back in the foreground.
             Log.w(TAG, "startForeground refused", e)
+            val wasRunning = running
             running = false
             holdWakeLock(this, Hold.GRACE)
+            // One an update may already have posted without the service.
+            notificationManager(this).cancel(NOTIFICATION_ID)
             stopSelf()
+            // Not for a session that was stopped meanwhile.
+            if (wasRunning) onStartFailed?.invoke()
             return START_NOT_STICKY
         }
         if (!running) {
@@ -142,6 +148,12 @@ class SessionService : Service() {
 
         /** Called (on the main thread) when the app is swiped away from recents. */
         var onDismissed: (() -> Unit)? = null
+
+        /**
+         * Called (on the main thread) when the system refused the service
+         * after start() had returned, so it isn't running.
+         */
+        var onStartFailed: (() -> Unit)? = null
 
         /** Whether a session is running, i.e. the notification should be up. */
         private var running = false

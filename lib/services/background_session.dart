@@ -25,24 +25,36 @@ class BackgroundStatus {
   /// null.
   final String? action;
 
-  /// Whether the notification would look the same with [other] shown: the
-  /// same text and button, and countdowns no more than [tolerance] apart
-  /// (the system draws the countdown from the wall clock, so a small drift
-  /// isn't worth an update). Compares every field, so a field added here
-  /// must be added below too.
+  /// Whether the notification would look the same with [other] shown: equal
+  /// (see [==]) once countdowns no more than [tolerance] apart are taken as
+  /// the same (the system draws the countdown from the wall clock, so a
+  /// small drift isn't worth an update).
   bool looksLike(BackgroundStatus other,
-      {Duration tolerance = Duration.zero}) {
-    final end = endsAt;
-    final otherEnd = other.endsAt;
-    final sameCountdown = (end == null && otherEnd == null) ||
-        (end != null &&
-            otherEnd != null &&
-            end.difference(otherEnd).abs() <= tolerance);
-    return title == other.title &&
-        text == other.text &&
-        action == other.action &&
-        sameCountdown;
+          {Duration tolerance = Duration.zero}) =>
+      this == other ||
+      (countdownCloseTo(other.endsAt, tolerance: tolerance) &&
+          this == other._withEndsAt(endsAt));
+
+  /// Whether [endsAt] and [end] are both null, or no more than [tolerance]
+  /// apart.
+  bool countdownCloseTo(DateTime? end, {Duration tolerance = Duration.zero}) {
+    final mine = endsAt;
+    if (mine == null || end == null) return mine == end;
+    return mine.difference(end).abs() <= tolerance;
   }
+
+  BackgroundStatus _withEndsAt(DateTime? endsAt) => BackgroundStatus(
+      title: title, text: text, endsAt: endsAt, action: action);
+
+  /// Every field: what [looksLike] compares, beyond the countdown.
+  List<Object?> get _fields => [title, text, endsAt, action];
+
+  @override
+  bool operator ==(Object other) =>
+      other is BackgroundStatus && listEquals(other._fields, _fields);
+
+  @override
+  int get hashCode => Object.hashAll(_fields);
 }
 
 /// Keeps a running session alive with the app in the background or the
@@ -100,6 +112,10 @@ class PlatformBackgroundSession implements BackgroundSession {
             onAction(call.arguments as String?);
           case 'dismissed':
             onDismissed();
+          // Refused after 'start' had succeeded (the app went to the
+          // background before the service got going).
+          case 'startFailed':
+            if (_owner == this) _startFailed = true;
         }
       });
     }
@@ -107,7 +123,10 @@ class PlatformBackgroundSession implements BackgroundSession {
   }
 
   Future<void> _start(BackgroundStatus status) async {
-    _startFailed = !await _call('start', status);
+    final started = await _call('start', status);
+    // Stopped or superseded meanwhile: nothing left to retry.
+    if (_owner != this) return;
+    _startFailed = !started;
   }
 
   @override

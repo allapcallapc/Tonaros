@@ -77,6 +77,10 @@ class _RunningScreenState extends State<RunningScreen>
 
   bool _backgroundStopped = false;
 
+  /// The runner's phase and status, and whether the "Stop session?" dialog
+  /// was up, when [_shown] was built; see [_syncBackground].
+  (int, RunnerStatus, bool)? _shownKey;
+
   @override
   void initState() {
     super.initState();
@@ -91,6 +95,7 @@ class _RunningScreenState extends State<RunningScreen>
     _runner.start();
     _runner.addListener(_onRunnerChanged);
     // Keep timing and cues going with the app in the background.
+    _shownKey = (_runner.index, _runner.status, _confirmingStop);
     _shown = _backgroundStatus();
     _background.start(
       _shown,
@@ -108,6 +113,16 @@ class _RunningScreenState extends State<RunningScreen>
   /// [_maxCountdownDrift]. Cheap enough to call on every change.
   void _syncBackground() {
     if (_backgroundStopped) return;
+    // What the text and button follow. While it's unchanged (e.g. on each
+    // second of a countdown) only the countdown can be off, so the text
+    // isn't rebuilt just to compare it.
+    final key = (_runner.index, _runner.status, _confirmingStop);
+    if (key == _shownKey &&
+        _shown.countdownCloseTo(_countdownEnd(),
+            tolerance: _maxCountdownDrift)) {
+      return;
+    }
+    _shownKey = key;
     final status = _backgroundStatus();
     if (status.looksLike(_shown, tolerance: _maxCountdownDrift)) return;
     _shown = status;
@@ -190,8 +205,11 @@ class _RunningScreenState extends State<RunningScreen>
             ?_runner.setLabel,
             'Rep ${phase.rep}/${exercise.reps}',
           ],
-          if (phase.kind != PhaseKind.getReady &&
-              phase.kind != PhaseKind.transition)
+          // A timed transition: the exercise coming up, as on screen (and
+          // as when waiting for a tap).
+          if (phase.kind == PhaseKind.transition)
+            _runner.displayExercise.name
+          else if (phase.kind != PhaseKind.getReady)
             exercise.name,
         ].join(' · ');
     }

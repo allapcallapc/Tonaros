@@ -32,11 +32,12 @@ class MainActivity : FlutterActivity() {
         engine ?: FlutterEngine(
             context.applicationContext,
             // As FlutterActivity builds its own engine: with the launch
-            // intent's shell args (e.g. from `flutter run`), plugins
-            // registered once (by super.configureFlutterEngine, not here as
-            // well), and state restoration as configured.
+            // intent's shell args (e.g. from `flutter run`), and state
+            // restoration as configured. Plugins are registered here, once
+            // per engine: super.configureFlutterEngine skips registering
+            // them for an engine provided by the host, as this one is.
             flutterShellArgs.toArray(),
-            false,
+            true,
             shouldRestoreAndSaveState(),
         ).also { engine = it }
 
@@ -57,6 +58,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        attached = true
         // Called again for each activity attaching to the engine: the
         // handlers below always belong to the current one.
         //
@@ -71,7 +73,16 @@ class MainActivity : FlutterActivity() {
         // The notification's Pause/Resume/Continue button.
         SessionService.onAction = { label -> sessionChannel.invokeMethod("action", label) }
         // Swiped away from recents: end the Dart session with the service.
-        SessionService.onDismissed = { sessionChannel.invokeMethod("dismissed", null) }
+        SessionService.onDismissed = {
+            sessionChannel.invokeMethod("dismissed", null)
+            // No activity left to destroy the engine when it finishes: the
+            // system destroyed it in the background. Don't keep the old
+            // session's isolate (and its screens) for the next launch.
+            if (!attached) destroyRetainedEngine()
+        }
+        // The service was refused after "start" had already succeeded: Dart
+        // retries once the app is back in the foreground.
+        SessionService.onStartFailed = { sessionChannel.invokeMethod("startFailed", null) }
         sessionChannel.setMethodCallHandler { call, result ->
             val title = call.argument<String>("title") ?: "Tonaros"
             val text = call.argument<String>("text") ?: ""
@@ -98,13 +109,14 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        // Needs this activity (to start the installer), so it is taken off
-        // the engine again in cleanUpFlutterEngine.
+        // Only the application context, like the session handler: the engine
+        // may outlive this activity, and a session running in the background
+        // must not find the handler gone.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
             when (call.method) {
                 "isInstallPermissionGranted" -> {
                     val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        packageManager.canRequestPackageInstalls()
+                        appContext.packageManager.canRequestPackageInstalls()
                     } else {
                         true
                     }
@@ -112,11 +124,11 @@ class MainActivity : FlutterActivity() {
                 }
                 "openInstallPermissionSettings" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startActivity(
+                        appContext.startActivity(
                             Intent(
                                 android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                Uri.parse("package:$packageName")
-                            )
+                                Uri.parse("package:${appContext.packageName}")
+                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         )
                     }
                     result.success(null)
@@ -127,9 +139,9 @@ class MainActivity : FlutterActivity() {
                         result.error("NO_PATH", "filePath is required", null)
                     } else {
                         val uri = FileProvider.getUriForFile(
-                            this, "$packageName.fileprovider", File(path)
+                            appContext, "${appContext.packageName}.fileprovider", File(path)
                         )
-                        startActivity(Intent(Intent.ACTION_VIEW).apply {
+                        appContext.startActivity(Intent(Intent.ACTION_VIEW).apply {
                             setDataAndType(uri, "application/vnd.android.package-archive")
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
                         })
@@ -142,15 +154,12 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
-        // Its handler holds this activity, which the engine would otherwise
-        // keep in memory after the system destroyed it. The next activity
-        // sets it again.
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler(null)
+        // The engine may stay without an activity now.
+        attached = false
         // Only destroyed by the system: the engine and the session live on,
         // and the next activity picks them up.
         if (isFinishedForGood()) {
-            SessionService.onAction = null
-            SessionService.onDismissed = null
+            clearSessionCallbacks()
             // The engine (and the Dart session with it) is going away, so the
             // running screen will never stop the service itself: don't leave
             // its notification, dead button and wake lock behind.
@@ -182,6 +191,22 @@ class MainActivity : FlutterActivity() {
     private companion object {
         /** See [provideFlutterEngine]. */
         var engine: FlutterEngine? = null
+
+        /** Whether an activity is using [engine]. */
+        var attached = false
+
+        fun clearSessionCallbacks() {
+            SessionService.onAction = null
+            SessionService.onDismissed = null
+            SessionService.onStartFailed = null
+        }
+
+        /** Destroys [engine] while no activity uses it; see onDismissed. */
+        fun destroyRetainedEngine() {
+            clearSessionCallbacks()
+            engine?.destroy()
+            engine = null
+        }
 
         /** Unlikely to collide with the request codes plugins use. */
         const val NOTIFICATION_PERMISSION_REQUEST = 0x7a01

@@ -93,4 +93,58 @@ void main() {
     expect(dismissed, 1);
     await session.stop();
   });
+
+  Future<void> fromNative(String method, [Object? arguments]) =>
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+              channel.name,
+              const StandardMethodCodec()
+                  .encodeMethodCall(MethodCall(method, arguments)),
+              (_) {});
+
+  test('a start refused natively after it returned is retried on resume',
+      () async {
+    final session = PlatformBackgroundSession();
+    await session.start(status, onAction: (_) {}, onDismissed: () {});
+    await fromNative('startFailed');
+    // The service isn't running: updates would be ignored.
+    await session.update(status);
+    await session.ensureStarted(status);
+    await session.stop();
+    expect(calls, ['start', 'start', 'stop']);
+  });
+
+  test('a start refused after stop leaves nothing to retry', () async {
+    final session = PlatformBackgroundSession();
+    startsToRefuse = 1;
+    final starting =
+        session.start(status, onAction: (_) {}, onDismissed: () {});
+    await session.stop();
+    await starting;
+    await session.ensureStarted(status);
+    expect(calls, ['start', 'stop']);
+  });
+
+  test('looksLike allows a small countdown drift, nothing else', () {
+    final at = DateTime(2026);
+    final s = BackgroundStatus(title: 'S', text: 'Hold', endsAt: at);
+    BackgroundStatus other(
+            {String text = 'Hold', DateTime? endsAt, String? action}) =>
+        BackgroundStatus(
+            title: 'S', text: text, endsAt: endsAt ?? at, action: action);
+    const tolerance = Duration(seconds: 1);
+    expect(s.looksLike(other(), tolerance: tolerance), isTrue);
+    expect(
+        s.looksLike(other(endsAt: at.add(const Duration(milliseconds: 900))),
+            tolerance: tolerance),
+        isTrue);
+    expect(
+        s.looksLike(other(endsAt: at.add(const Duration(seconds: 2))),
+            tolerance: tolerance),
+        isFalse);
+    expect(s.looksLike(other(text: 'Rest'), tolerance: tolerance), isFalse);
+    expect(s.looksLike(other(action: 'Pause'), tolerance: tolerance), isFalse);
+    expect(s.looksLike(const BackgroundStatus(title: 'S', text: 'Hold')),
+        isFalse);
+  });
 }
