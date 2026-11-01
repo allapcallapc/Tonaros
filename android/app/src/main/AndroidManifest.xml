@@ -8,7 +8,7 @@
     <!-- Keeps a running session (timer + cues) alive in the background:
          see SessionService. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
@@ -37,12 +37,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <!-- Plays session cues with the app in the background; see
-             SessionService.kt. -->
+        <!-- Keeps a session's timer and cues going with the app in the
+             background; see SessionService.kt. "specialUse": a countdown
+             with short cues isn't media playback, and no other type fits. -->
         <service
             android:name=".SessionService"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Interval exercise timer: keeps a user-started session's countdown and audio/vibration cues running with the screen off or the app in the background, until the session ends." />
+        </service>
         <!-- The session notification's Pause/Resume/Continue button. -->
         <receiver
             android:name=".SessionService$ActionReceiver"

@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -35,10 +36,25 @@ class MainActivity : FlutterActivity() {
     /** Finished (e.g. swiped away from recents), not just destroyed by the system. */
     private fun isFinishedForGood() = isFinishing && !isChangingConfigurations
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // On a fresh launch, on the sessions list - not when a session
+        // starts, where the dialog would cover the "get ready" countdown -
+        // and not in an activity recreated while a session runs.
+        if (savedInstanceState == null && !SessionService.isRunning) {
+            requestNotificationPermission()
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // Called again for each activity attaching to the engine: the
         // handlers below always belong to the current one.
+        //
+        // The session handler must not reference this activity: the engine
+        // keeps it, and may outlive the activity (see provideFlutterEngine),
+        // so only the application context is used.
+        val appContext = applicationContext
 
         // Keeps a running session alive in the background - see SessionService
         // and lib/services/background_session.dart.
@@ -52,28 +68,27 @@ class MainActivity : FlutterActivity() {
             val action = call.argument<String>("action")
             when (call.method) {
                 "start" -> {
-                    if (!isDestroyed) requestNotificationPermission()
                     try {
-                        SessionService.start(applicationContext, title, text, endsAt, action)
+                        SessionService.start(appContext, title, text, endsAt, action)
                         result.success(null)
                     } catch (e: RuntimeException) {
                         result.error("START_FAILED", e.message, null)
                     }
                 }
-                // The application context: this activity may be gone by now,
-                // with the session still running.
                 "update" -> {
-                    SessionService.update(applicationContext, title, text, endsAt, action)
+                    SessionService.update(appContext, title, text, endsAt, action)
                     result.success(null)
                 }
                 "stop" -> {
-                    SessionService.stop(applicationContext)
+                    SessionService.stop(appContext)
                     result.success(null)
                 }
                 else -> result.notImplemented()
             }
         }
 
+        // Needs this activity (to start the installer), so it is taken off
+        // the engine again in cleanUpFlutterEngine.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
             when (call.method) {
                 "isInstallPermissionGranted" -> {
@@ -116,6 +131,10 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        // Its handler holds this activity, which the engine would otherwise
+        // keep in memory after the system destroyed it. The next activity
+        // sets it again.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler(null)
         // Only destroyed by the system: the engine and the session live on,
         // and the next activity picks them up.
         if (isFinishedForGood()) {
@@ -131,11 +150,10 @@ class MainActivity : FlutterActivity() {
 
     /**
      * Android 13+ hides the session notification unless notifications are
-     * allowed. Asks whenever a session starts while they aren't, so a
-     * dismissed prompt comes back next time. Android itself stops showing it
-     * once the user has denied it twice; they can still allow it in the
-     * system settings. The session runs either way, so the result needs no
-     * handling.
+     * allowed. Asks on launch while they aren't, so a dismissed prompt comes
+     * back next time. Android itself stops showing it once the user has
+     * denied it twice; they can still allow it in the system settings.
+     * Sessions run either way, so the result needs no handling.
      */
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return

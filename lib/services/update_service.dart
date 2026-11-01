@@ -2,11 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+
+import 'platform.dart';
 
 /// A newer release found on GitHub, ready to be downloaded and installed.
 class UpdateInfo {
@@ -40,8 +41,7 @@ class UpdateService {
 
   final http.Client _httpClient;
 
-  static bool get isSupported =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  static bool get isSupported => isAndroidApp;
 
   Future<UpdateInfo?> checkForUpdate() async {
     if (!isSupported) return null;

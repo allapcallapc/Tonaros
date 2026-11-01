@@ -42,8 +42,9 @@ class SessionService : Service() {
             this,
             NOTIFICATION_ID,
             buildNotification(this, latest),
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            // The type is required from Android 14; before that, none.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
             } else {
                 0
             },
@@ -115,6 +116,8 @@ class SessionService : Service() {
 
         /** Whether a session is running, i.e. the notification should be up. */
         private var running = false
+
+        val isRunning: Boolean get() = running
 
         /**
          * Whether startForegroundService was called and onStartCommand

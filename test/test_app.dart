@@ -140,6 +140,13 @@ class FakeBackgroundSession implements BackgroundSession {
     if (shown.last != status.text) shown.add(status.text);
   }
 
+  /// How many times ensureStarted() was called.
+  int ensureStartedCalls = 0;
+
+  @override
+  Future<void> ensureStarted(BackgroundStatus status) async =>
+      ensureStartedCalls++;
+
   @override
   Future<void> stop() async => running = false;
 }

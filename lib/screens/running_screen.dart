@@ -101,18 +101,7 @@ class _RunningScreenState extends State<RunningScreen>
   void _syncBackground() {
     if (_backgroundStopped) return;
     final status = _backgroundStatus();
-    final shownEnd = _shown.endsAt;
-    final end = status.endsAt;
-    final sameCountdown = (end == null && shownEnd == null) ||
-        (end != null &&
-            shownEnd != null &&
-            end.difference(shownEnd).abs() <= _maxCountdownDrift);
-    if (status.title == _shown.title &&
-        status.text == _shown.text &&
-        status.action == _shown.action &&
-        sameCountdown) {
-      return;
-    }
+    if (status.looksLike(_shown, tolerance: _maxCountdownDrift)) return;
     _shown = status;
     _background.update(status);
   }
@@ -142,7 +131,15 @@ class _RunningScreenState extends State<RunningScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Timers may have been throttled in the background; catch up at once
     // rather than on the next timer tick.
-    if (state == AppLifecycleState.resumed) _runner.tick();
+    if (state == AppLifecycleState.resumed) {
+      _runner.tick();
+      // A start refused because the app was already in the background is
+      // retried now that it's back.
+      if (!_backgroundStopped) {
+        _shown = _backgroundStatus();
+        _background.ensureStarted(_shown);
+      }
+    }
   }
 
   /// "Hold · Set 2/3 · Rep 3/10 · Quad set", with a countdown to the phase's
@@ -155,15 +152,17 @@ class _RunningScreenState extends State<RunningScreen>
     switch (_runner.status) {
       case RunnerStatus.waitingForTap:
         final next = _runner.nextPhase;
+        // As on screen: the next exercise with phases of its own, skipping
+        // any that have none.
         final nextExercise =
-            next == null ? null : widget.session.exercises[next.exerciseIndex];
+            widget.session.exercises[_runner.displayExerciseIndex];
         text = switch (next) {
           null => 'Tap to continue',
           // A tap rest between sets: the next set of the same exercise.
           _ when next.exerciseIndex == phase.exerciseIndex =>
             'Tap to continue · Next: Set ${next.set}/${exercise.sets} · '
                 '${exercise.name}',
-          _ => 'Tap to continue · Next: ${nextExercise!.name}',
+          _ => 'Tap to continue · Next: ${nextExercise.name}',
         };
       default:
         text = [

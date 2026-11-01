@@ -7,11 +7,19 @@ void main() {
   const channel = MethodChannel('com.tonaros/session');
   late List<String> calls;
 
+  /// How many of the next native starts are refused.
+  late int startsToRefuse;
+
   setUp(() {
     calls = [];
+    startsToRefuse = 0;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
       calls.add(call.method);
+      if (call.method == 'start' && startsToRefuse > 0) {
+        startsToRefuse--;
+        throw PlatformException(code: 'START_FAILED');
+      }
       return null;
     });
   });
@@ -37,5 +45,31 @@ void main() {
     await current.update(status);
     await current.stop();
     expect(calls, ['start', 'start', 'update', 'stop']);
+  });
+
+  test('a refused start is retried, by the next update or on resume',
+      () async {
+    final session = PlatformBackgroundSession();
+    startsToRefuse = 2;
+    await session.start(status, onAction: () {});
+    // Refused again (e.g. still in the background): tried again next time.
+    await session.update(status);
+    await session.ensureStarted(status);
+    expect(calls, ['start', 'start', 'start']);
+
+    // Running now: back to plain updates, and nothing to retry.
+    await session.update(status);
+    await session.ensureStarted(status);
+    await session.stop();
+    expect(calls, ['start', 'start', 'start', 'update', 'stop']);
+  });
+
+  test('ensureStarted does nothing once started', () async {
+    final session = PlatformBackgroundSession();
+    await session.start(status, onAction: () {});
+    await session.ensureStarted(status);
+    await session.stop();
+    await session.ensureStarted(status);
+    expect(calls, ['start', 'stop']);
   });
 }
