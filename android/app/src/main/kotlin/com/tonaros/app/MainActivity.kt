@@ -101,11 +101,16 @@ class MainActivity : FlutterActivity() {
                     // destroyed it in the background, or the app was swiped
                     // away): don't keep its isolate and screens for the next
                     // launch. Decided now - no activity can attach to it any
-                    // more - but posted: not from inside the engine's own
-                    // call.
+                    // more - but done after the wake lock's grace period:
+                    // the "session complete" cue, sent to the audio and
+                    // vibration plugins as the session ended, must get to
+                    // play before they go with the engine.
                     if (attachedHosts == 0) {
                         clearSessionCallbacks()
-                        Handler(Looper.getMainLooper()).post { flutterEngine.destroy() }
+                        Handler(Looper.getMainLooper()).postDelayed(
+                            { flutterEngine.destroy() },
+                            SessionService.WAKE_LOCK_GRACE_MS,
+                        )
                     }
                 }
                 else -> result.notImplemented()

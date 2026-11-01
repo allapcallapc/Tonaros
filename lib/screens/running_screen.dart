@@ -257,8 +257,13 @@ class _RunningScreenState extends State<RunningScreen>
   void _onRunnerChanged() {
     if (_runner.status == RunnerStatus.finished) {
       _stopBackground(after: _record());
-      Navigator.pushReplacement(
-        context,
+      // Anything over this screen goes first - the "Stop session?" dialog,
+      // if the session ended behind it (e.g. the app was swiped away) - so
+      // the summary replaces this screen, not the dialog.
+      final navigator = Navigator.of(context);
+      final route = ModalRoute.of(context);
+      if (route != null) navigator.popUntil((r) => r == route);
+      navigator.pushReplacement(
         MaterialPageRoute(
           builder: (_) => SummaryScreen(
             sessionName: widget.session.name,
@@ -331,7 +336,9 @@ class _RunningScreenState extends State<RunningScreen>
     } finally {
       _confirmingStop = false;
     }
-    if (!mounted) return;
+    // Ended meanwhile (the dialog was closed for the summary): nothing to
+    // stop or resume.
+    if (!mounted || _runner.status == RunnerStatus.finished) return;
     if (stop) {
       _runner.stop();
       return;

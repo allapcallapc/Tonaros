@@ -202,7 +202,7 @@ class SessionService : Service() {
         private val primaryIntents = mutableMapOf<String, PendingIntent>()
 
         /** Long enough for a phase's start cue to be played. */
-        private const val WAKE_LOCK_GRACE_MS = 5_000L
+        const val WAKE_LOCK_GRACE_MS = 5_000L
 
         /** Safety net: a session never needs more than a few hours. */
         private const val WAKE_LOCK_MAX_MS = 4 * 60 * 60 * 1000L

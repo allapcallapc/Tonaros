@@ -489,6 +489,22 @@ void main() {
     expect(find.byType(SummaryScreen), findsOneWidget);
   });
 
+  testWidgets('swiping the app away behind the stop dialog shows the summary',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await elapse(tester, 3);
+    await tester.tap(find.byTooltip('Stop'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Stop session?'), findsOneWidget);
+
+    background.dismiss();
+    await tester.pumpAndSettle();
+    expect(find.text('Stop session?'), findsNothing);
+    expect(find.byType(SummaryScreen), findsOneWidget);
+    // The running screen is gone, not left under the summary.
+    expect(find.byType(RunningScreen, skipOffstage: false), findsNothing);
+  });
+
   testWidgets('swiping the app away saves the run before stopping',
       (tester) async {
     await pumpRunning(tester, sampleSession());
