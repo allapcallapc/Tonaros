@@ -17,8 +17,15 @@ void main() {
   late FakeCueOutput cues;
   late FakeBackgroundSession background;
 
+  /// The wall clock follows the fake timer clock unless frozen.
+  var wallClockFrozen = false;
+  final wallClockStart = DateTime(2026, 3, 10, 9, 41);
+  late Duration wallClockFrozenAt;
+
   Future<void> pumpRunning(WidgetTester tester, Session session) async {
     clock = FakeClock();
+    final clockStart = clock.now;
+    wallClockFrozen = false;
     cues = FakeCueOutput();
     background = FakeBackgroundSession();
     await tester.pumpWidget(await withAppScope(MaterialApp(
@@ -31,7 +38,9 @@ void main() {
                   RunningScreen(
                     session: session,
                     clock: () => clock.now,
-                    now: () => DateTime(2026, 3, 10, 9, 41),
+                    now: () => wallClockStart.add(
+                        (wallClockFrozen ? wallClockFrozenAt : clock.now) -
+                            clockStart),
                     cueOutput: cues,
                     background: background,
                   ),
@@ -304,7 +313,7 @@ void main() {
     expect(entry.sessionName, 'S');
     expect(entry.completed, isTrue);
     expect(entry.activeTime.inSeconds, 31);
-    expect(entry.endedAt, DateTime(2026, 3, 10, 9, 41));
+    expect(entry.endedAt, DateTime(2026, 3, 10, 9, 41, 31));
   });
 
   testWidgets('a run stopped before anything was done is not recorded',
@@ -515,8 +524,15 @@ void main() {
     );
     await elapse(tester, 3);
     final endsAt = background.last!.endsAt!;
+    // Counting down with both clocks in step resends nothing.
+    final updates = background.updates;
+    await elapse(tester, 1);
+    expect(background.updates, updates);
+    expect(background.last!.endsAt, endsAt);
     // The runner's clock moves on but the wall clock doesn't (as when the
     // wall clock is set back): the countdown has to follow the timer.
+    wallClockFrozenAt = clock.now;
+    wallClockFrozen = true;
     await elapse(tester, 4);
     expect(find.text('HOLD'), findsOneWidget);
     expect(
@@ -537,5 +553,40 @@ void main() {
     await tester.tap(find.byTooltip('Previous exercise'));
     await tester.pump();
     expect(background.last!.text, 'Hold · Rep 1/2 · A');
+  });
+  testWidgets('the notification names the set, and the set coming up in a '
+      'timed set rest', (tester) async {
+    await pumpRunning(
+      tester,
+      Session(id: 's', name: 'S', exercises: [
+        const HoldExercise(
+          id: 'a',
+          name: 'A',
+          sets: 3,
+          restBetweenSets: 30,
+          tapBetweenSets: false,
+          reps: 1,
+          holdSeconds: 5,
+          restBetweenReps: 0,
+        ),
+      ]),
+    );
+    await elapse(tester, 3);
+    expect(background.last!.text, 'Hold · Set 1/3 · Rep 1/1 · A');
+    await elapse(tester, 5);
+    expect(background.last!.text, 'Set rest · Next: Set 2/3 · A');
+    await elapse(tester, 30);
+    expect(background.last!.text, 'Hold · Set 2/3 · Rep 1/1 · A');
+  });
+
+  testWidgets('opening the stop dialog updates the notification once',
+      (tester) async {
+    await pumpRunning(tester, sampleSession());
+    await elapse(tester, 3);
+    final updates = background.updates;
+    await tester.tap(find.byTooltip('Stop'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(background.last!.action, isNull);
+    expect(background.updates, updates + 1);
   });
 }

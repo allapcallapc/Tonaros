@@ -1,6 +1,7 @@
 package com.tonaros.app
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
@@ -17,8 +18,27 @@ class MainActivity : FlutterActivity() {
     private val channelName = "com.tonaros/updates"
     private val sessionChannelName = "com.tonaros/session"
 
+    /**
+     * The engine - and the Dart session timer with it - outlives this
+     * activity: with a session running in the background the system may
+     * destroy the activity (memory pressure, "Don't keep activities") while
+     * SessionService keeps the process alive, and the session must go on.
+     * A recreated activity attaches to the same engine, so the running
+     * screen is still there. Destroyed only when the activity is finished
+     * for good (see [shouldDestroyEngineWithHost]).
+     */
+    override fun provideFlutterEngine(context: Context): FlutterEngine =
+        engine ?: FlutterEngine(context.applicationContext).also { engine = it }
+
+    override fun shouldDestroyEngineWithHost(): Boolean = isFinishedForGood()
+
+    /** Finished (e.g. swiped away from recents), not just destroyed by the system. */
+    private fun isFinishedForGood() = isFinishing && !isChangingConfigurations
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // Called again for each activity attaching to the engine: the
+        // handlers below always belong to the current one.
 
         // Keeps a running session alive in the background - see SessionService
         // and lib/services/background_session.dart.
@@ -32,16 +52,22 @@ class MainActivity : FlutterActivity() {
             val action = call.argument<String>("action")
             when (call.method) {
                 "start" -> {
-                    requestNotificationPermission()
-                    SessionService.start(this, title, text, endsAt, action)
-                    result.success(null)
+                    if (!isDestroyed) requestNotificationPermission()
+                    try {
+                        SessionService.start(applicationContext, title, text, endsAt, action)
+                        result.success(null)
+                    } catch (e: RuntimeException) {
+                        result.error("START_FAILED", e.message, null)
+                    }
                 }
+                // The application context: this activity may be gone by now,
+                // with the session still running.
                 "update" -> {
-                    SessionService.update(this, title, text, endsAt, action)
+                    SessionService.update(applicationContext, title, text, endsAt, action)
                     result.success(null)
                 }
                 "stop" -> {
-                    SessionService.stop(this)
+                    SessionService.stop(applicationContext)
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -90,28 +116,32 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
-        SessionService.onAction = null
-        // The engine (and the Dart session with it) is going away, so the
-        // running screen will never stop the service itself: don't leave its
-        // notification, dead button and wake lock behind.
-        SessionService.stop(this)
+        // Only destroyed by the system: the engine and the session live on,
+        // and the next activity picks them up.
+        if (isFinishedForGood()) {
+            SessionService.onAction = null
+            // The engine (and the Dart session with it) is going away, so the
+            // running screen will never stop the service itself: don't leave
+            // its notification, dead button and wake lock behind.
+            SessionService.stop(applicationContext)
+            engine = null
+        }
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
     /**
      * Android 13+ hides the session notification unless notifications are
-     * allowed. Asks only the first time a session starts, not every time: the
-     * prompt would cover the get-ready countdown, and the session runs either
-     * way. The result needs no handling.
+     * allowed. Asks whenever a session starts while they aren't, so a
+     * dismissed prompt comes back next time. Android itself stops showing it
+     * once the user has denied it twice; they can still allow it in the
+     * system settings. The session runs either way, so the result needs no
+     * handling.
      */
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             == PackageManager.PERMISSION_GRANTED
         ) return
-        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-        if (prefs.getBoolean(ASKED_NOTIFICATIONS, false)) return
-        prefs.edit().putBoolean(ASKED_NOTIFICATIONS, true).apply()
         ActivityCompat.requestPermissions(
             this,
             arrayOf(Manifest.permission.POST_NOTIFICATIONS),
@@ -120,8 +150,8 @@ class MainActivity : FlutterActivity() {
     }
 
     private companion object {
-        const val PREFS = "com.tonaros.app.session"
-        const val ASKED_NOTIFICATIONS = "askedNotificationPermission"
+        /** See [provideFlutterEngine]. */
+        var engine: FlutterEngine? = null
 
         /** Unlikely to collide with the request codes plugins use. */
         const val NOTIFICATION_PERMISSION_REQUEST = 0x7a01

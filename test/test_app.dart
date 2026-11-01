@@ -89,6 +89,7 @@ Future<Widget> withAppScope(Widget child,
     settings: SettingsStore(sharedPrefs),
     updates: UpdateController(FakeUpdateService(null)),
     cues: FakeCueOutput(),
+    backgroundSession: FakeBackgroundSession.new,
     child: child,
   );
 }
@@ -109,12 +110,15 @@ HistoryEntry run(DateTime at,
 
 /// Records what the background notification would show.
 class FakeBackgroundSession implements BackgroundSession {
-  /// The texts shown, in order, without consecutive repeats.
+  /// The texts shown, in order.
   final shown = <String>[];
   bool running = false;
 
   /// The latest status, e.g. for its button label and countdown.
   BackgroundStatus? last;
+
+  /// How many times update() was called.
+  int updates = 0;
 
   /// Taps the notification's button.
   VoidCallback? tapAction;
@@ -131,8 +135,9 @@ class FakeBackgroundSession implements BackgroundSession {
   @override
   Future<void> update(BackgroundStatus status) async {
     last = status;
-    // Countdown resyncs resend the same text; [shown] lists what changed.
-    if (shown.isEmpty || shown.last != status.text) shown.add(status.text);
+    updates++;
+    // A countdown resync or a button change keeps the text.
+    if (shown.last != status.text) shown.add(status.text);
   }
 
   @override

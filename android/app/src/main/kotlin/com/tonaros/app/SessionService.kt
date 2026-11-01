@@ -140,18 +140,30 @@ class SessionService : Service() {
         /** Safety net: a session never needs more than a few hours. */
         private const val WAKE_LOCK_MAX_MS = 4 * 60 * 60 * 1000L
 
-        /** Starts the service; call while the app is in the foreground. */
+        /**
+         * Starts the service; call while the app is in the foreground. Throws
+         * if the system refuses (e.g. Android 12+ when the app has already
+         * gone to the background), leaving nothing running: no service means
+         * no notification or wake lock, which update() and stop() could
+         * otherwise never take down.
+         */
         fun start(context: Context, title: String, text: String, endsAt: Long, action: String?) {
             latest = Content(title, text, endsAt, action)
+            // Before the call: onStartCommand checks it, and both run on the
+            // main thread, so it can't run in between.
             running = true
             val intent = Intent(context, SessionService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: RuntimeException) {
+                running = false
+                throw e
             }
-            // After the call, so a start that threw isn't waited on. Both
-            // this and onStartCommand run on the main thread.
+            // After the call, so a start that threw isn't waited on.
             startPending = true
         }
 
@@ -181,6 +193,9 @@ class SessionService : Service() {
             // false and stops the service once it is in the foreground.
             if (startPending) return
             context.stopService(Intent(context, SessionService::class.java))
+            // Taken down with the service when it was in the foreground; this
+            // covers one posted without it.
+            notificationManager(context).cancel(NOTIFICATION_ID)
         }
 
         /**

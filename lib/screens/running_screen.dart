@@ -41,7 +41,7 @@ class RunningScreen extends StatefulWidget {
   /// Defaults to the app-wide [AppScope.cues].
   final CueOutput? cueOutput;
 
-  /// Defaults to the Android foreground service (a no-op elsewhere).
+  /// Defaults to one from [AppScope.backgroundSession].
   final BackgroundSession? background;
 
   @override
@@ -65,13 +65,10 @@ class _RunningScreenState extends State<RunningScreen>
       widget.cueOutput ?? AppScope.read(context).cues;
   late final CuePlayer _cues;
   late final BackgroundSession _background =
-      widget.background ?? PlatformBackgroundSession();
+      widget.background ?? AppScope.read(context).backgroundSession();
 
-  /// The phase and status the notification last showed.
-  (int, RunnerStatus)? _shown;
-
-  /// When the notification's countdown last said the phase ends.
-  DateTime? _shownEndsAt;
+  /// What the notification last showed.
+  late BackgroundStatus _shown;
 
   /// How far the notification's countdown may be off before it's resent:
   /// the timer may run late in the background, or the wall clock be
@@ -94,10 +91,30 @@ class _RunningScreenState extends State<RunningScreen>
     _runner.start();
     _runner.addListener(_onRunnerChanged);
     // Keep timing and cues going with the app in the background.
-    _shown = (_runner.index, _runner.status);
+    _shown = _backgroundStatus();
+    _background.start(_shown, onAction: _onNotificationAction);
+  }
+
+  /// Brings the notification in line with the screen, if anything it shows
+  /// changed: the text, the button, or the countdown by more than
+  /// [_maxCountdownDrift]. Cheap enough to call on every change.
+  void _syncBackground() {
+    if (_backgroundStopped) return;
     final status = _backgroundStatus();
-    _shownEndsAt = status.endsAt;
-    _background.start(status, onAction: _onNotificationAction);
+    final shownEnd = _shown.endsAt;
+    final end = status.endsAt;
+    final sameCountdown = (end == null && shownEnd == null) ||
+        (end != null &&
+            shownEnd != null &&
+            end.difference(shownEnd).abs() <= _maxCountdownDrift);
+    if (status.title == _shown.title &&
+        status.text == _shown.text &&
+        status.action == _shown.action &&
+        sameCountdown) {
+      return;
+    }
+    _shown = status;
+    _background.update(status);
   }
 
   /// Stops the background session, once. Done as soon as the session ends,
@@ -128,10 +145,12 @@ class _RunningScreenState extends State<RunningScreen>
     if (state == AppLifecycleState.resumed) _runner.tick();
   }
 
-  /// "Hold · Rep 3/10 · Quad set", with a countdown to the phase's end.
+  /// "Hold · Set 2/3 · Rep 3/10 · Quad set", with a countdown to the phase's
+  /// end.
   BackgroundStatus _backgroundStatus() {
     final phase = _runner.phase;
     final exercise = _runner.exercise;
+    final paused = _runner.status == RunnerStatus.paused;
     final String text;
     switch (_runner.status) {
       case RunnerStatus.waitingForTap:
@@ -148,9 +167,16 @@ class _RunningScreenState extends State<RunningScreen>
         };
       default:
         text = [
-          if (_runner.status == RunnerStatus.paused) 'Paused',
+          if (paused) 'Paused',
           phase.label,
-          if (phase.rep > 0) 'Rep ${phase.rep}/${exercise.reps}',
+          // A timed rest between sets: the set coming up, not the last
+          // set's final rep.
+          if (phase.kind == PhaseKind.setRest)
+            'Next: Set ${phase.set + 1}/${exercise.sets}'
+          else if (phase.rep > 0) ...[
+            if (exercise.sets > 1) 'Set ${phase.set}/${exercise.sets}',
+            'Rep ${phase.rep}/${exercise.reps}',
+          ],
           if (phase.kind != PhaseKind.getReady &&
               phase.kind != PhaseKind.transition)
             exercise.name,
@@ -170,10 +196,10 @@ class _RunningScreenState extends State<RunningScreen>
     );
   }
 
-  /// When the current phase ends by the real clock, not the runner's: the
-  /// system draws the countdown. Null unless counting down.
+  /// When the current phase ends by the wall clock, not the runner's: the
+  /// system draws the countdown from it. Null unless counting down.
   DateTime? _countdownEnd() => _runner.status == RunnerStatus.running
-      ? DateTime.now().add(_runner.remaining)
+      ? (widget.now ?? DateTime.now)().add(_runner.remaining)
       : null;
 
   /// The notification's button does what the main button on screen does.
@@ -205,16 +231,7 @@ class _RunningScreenState extends State<RunningScreen>
         ),
       );
     } else {
-      final shown = (_runner.index, _runner.status);
-      final endsAt = _countdownEnd();
-      final drifted = endsAt != null &&
-          _shownEndsAt != null &&
-          endsAt.difference(_shownEndsAt!).abs() > _maxCountdownDrift;
-      if (shown != _shown || drifted) {
-        _shown = shown;
-        _shownEndsAt = endsAt;
-        _background.update(_backgroundStatus());
-      }
+      _syncBackground();
       setState(() {});
     }
   }
@@ -261,8 +278,9 @@ class _RunningScreenState extends State<RunningScreen>
       return;
     }
     // Takes the button off the notification, also when pause() changed
-    // nothing (already paused, or waiting for a tap).
-    _background.update(_backgroundStatus());
+    // nothing (already paused, or waiting for a tap). A no-op if pause()
+    // already did it.
+    _syncBackground();
     final bool stop;
     try {
       stop = await showConfirmDialog(
@@ -279,13 +297,10 @@ class _RunningScreenState extends State<RunningScreen>
       _runner.stop();
       return;
     }
-    if (wasRunning) {
-      // Updates the notification, button included.
-      _runner.resume();
-    } else {
-      // Nothing changes on the runner: put the button back by hand.
-      _background.update(_backgroundStatus());
-    }
+    // Resuming updates the notification; otherwise nothing changes on the
+    // runner, but the button has to come back.
+    if (wasRunning) _runner.resume();
+    _syncBackground();
   }
 
   @override
