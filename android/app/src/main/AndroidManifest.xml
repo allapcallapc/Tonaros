@@ -5,6 +5,12 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <!-- Per-phase vibration cues while a session runs. -->
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- Keeps a running session (timer + cues) alive in the background:
+         see SessionService. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="Tonaros"
         android:name="${applicationName}"
@@ -31,6 +37,21 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Keeps a session's timer and cues going with the app in the
+             background; see SessionService.kt. "specialUse": a countdown
+             with short cues isn't media playback, and no other type fits. -->
+        <service
+            android:name=".SessionService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Interval exercise timer: keeps a user-started session's countdown and audio/vibration cues running with the screen off or the app in the background, until the session ends." />
+        </service>
+        <!-- The session notification's Pause/Resume/Continue button. -->
+        <receiver
+            android:name=".SessionService$ActionReceiver"
+            android:exported="false" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

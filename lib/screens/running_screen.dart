@@ -7,6 +7,7 @@ import '../engine/session_plan.dart';
 import '../engine/session_runner.dart';
 import '../models/history_entry.dart';
 import '../models/session.dart';
+import '../services/background_session.dart';
 import '../services/cues.dart';
 import '../services/settings_store.dart';
 import '../theme/phase_colors.dart';
@@ -25,6 +26,7 @@ class RunningScreen extends StatefulWidget {
     this.clock,
     this.now,
     this.cueOutput,
+    this.background,
   });
 
   final Session session;
@@ -38,6 +40,9 @@ class RunningScreen extends StatefulWidget {
 
   /// Defaults to the app-wide [AppScope.cues].
   final CueOutput? cueOutput;
+
+  /// Defaults to one from [AppScope.backgroundSession].
+  final BackgroundSession? background;
 
   @override
   State<RunningScreen> createState() => _RunningScreenState();
@@ -59,12 +64,27 @@ class _RunningScreenState extends State<RunningScreen>
   late final CueOutput _cueOutput =
       widget.cueOutput ?? AppScope.read(context).cues;
   late final CuePlayer _cues;
+  late final BackgroundSession _background =
+      widget.background ?? AppScope.read(context).backgroundSession();
+
+  /// What the notification last showed.
+  late BackgroundStatus _shown;
+
+  /// How far the notification's countdown may be off before it's resent:
+  /// the timer may run late in the background, or the wall clock be
+  /// changed, and the countdown is drawn from the wall clock.
+  static const _maxCountdownDrift = Duration(seconds: 1);
+
+  /// The longest the background session is kept up after the session ends
+  /// while the run is being saved (see [_stopBackground]).
+  static const _maxStopDelay = Duration(seconds: 10);
+
+  bool _backgroundStopped = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _runner.addListener(_onRunnerChanged);
     // Listen before starting, so "get ready" gets its cue too.
     _cues = CuePlayer(
       events: _runner.events,
@@ -73,6 +93,61 @@ class _RunningScreenState extends State<RunningScreen>
     );
     _cueOutput.setKeepAwake(true);
     _runner.start();
+    _runner.addListener(_onRunnerChanged);
+    // Keep timing and cues going with the app in the background.
+    _shown = _backgroundStatus();
+    _background.start(
+      _shown,
+      onAction: _onNotificationAction,
+      // Swiped away from recents: the service is gone, so end the session
+      // rather than carry on with no notification or wake lock.
+      onDismissed: () {
+        if (mounted) _runner.stop();
+      },
+    );
+  }
+
+  /// Brings the notification in line with the screen, if anything it shows
+  /// changed: the text, the button, or the countdown by more than
+  /// [_maxCountdownDrift]. Cheap enough to call on every change.
+  void _syncBackground() {
+    if (_backgroundStopped) return;
+    final status = _backgroundStatus();
+    if (status.looksLike(_shown, tolerance: _maxCountdownDrift)) return;
+    _shown = status;
+    _background.update(status);
+  }
+
+  /// Stops the background session, once. Done as soon as the session ends,
+  /// not just in [dispose]: with the app in the background the summary
+  /// route's transition gets no frames, so this screen isn't disposed until
+  /// the app is reopened, and the notification and wake lock would linger.
+  ///
+  /// With [after], the native session is only stopped once it completes
+  /// (the notification stops following the screen at once, though): with no
+  /// activity left, stopping lets the app's engine go (see MainActivity),
+  /// which would cut short e.g. saving the run to the history.
+  void _stopBackground({Future<void>? after}) {
+    if (_backgroundStopped) return;
+    _backgroundStopped = true;
+    if (after == null) {
+      _background.stop();
+    } else {
+      // Up until the stop: no countdown or button left from the last phase
+      // (a tap on it would do nothing now).
+      _shown = BackgroundStatus(
+        title: widget.session.name,
+        text: _runner.completed ? 'Session complete' : 'Session stopped',
+      );
+      _background.update(_shown);
+      // Bounded: a write that never completes must not leave the service
+      // and its notification up for good. Stopped even if it fails.
+      after
+          .timeout(_maxStopDelay, onTimeout: () {})
+          .catchError((Object e) {
+        debugPrint('RunningScreen: saving the run failed: $e');
+      }).whenComplete(_background.stop);
+    }
   }
 
   @override
@@ -82,6 +157,7 @@ class _RunningScreenState extends State<RunningScreen>
     _cues.dispose();
     _runner.dispose();
     _cueOutput.setKeepAwake(false);
+    _stopBackground();
     super.dispose();
   }
 
@@ -89,14 +165,114 @@ class _RunningScreenState extends State<RunningScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Timers may have been throttled in the background; catch up at once
     // rather than on the next timer tick.
-    if (state == AppLifecycleState.resumed) _runner.tick();
+    if (state == AppLifecycleState.resumed) {
+      _runner.tick();
+      if (!_backgroundStopped) {
+        // The activity may have been destroyed and recreated in the
+        // background (the engine outlives it): keep-awake is a flag on the
+        // activity's window, so set it on the new one.
+        _cueOutput.setKeepAwake(true);
+        // Resends the notification if its countdown is off (the timer ran
+        // late, or the wall clock changed) without the runner changing, so
+        // no listener fired.
+        _syncBackground();
+        // A start refused because the app was already in the background is
+        // retried now that it's back.
+        _background.ensureStarted(_shown);
+      }
+    }
+  }
+
+  /// "Hold · Set 2/3 · Rep 3/10 · Quad set", with a countdown to the phase's
+  /// end.
+  BackgroundStatus _backgroundStatus() {
+    final phase = _runner.phase;
+    final exercise = _runner.exercise;
+    final String text;
+    switch (_runner.status) {
+      case RunnerStatus.waitingForTap:
+        final next = _runner.nextPhase;
+        // As on screen: the next exercise with phases of its own, skipping
+        // any that have none.
+        final nextExercise = _runner.displayExercise;
+        text = switch (next) {
+          null => 'Tap to continue',
+          // A tap rest between sets: the next set of the same exercise.
+          _ when next.exerciseIndex == phase.exerciseIndex =>
+            'Tap to continue · Next: Set ${next.set}/${exercise.sets} · '
+                '${exercise.name}',
+          _ => 'Tap to continue · Next: ${nextExercise.name}',
+        };
+      default:
+        text = [
+          if (_runner.paused) 'Paused',
+          phase.label,
+          // A timed rest between sets: the set coming up, not the last
+          // set's final rep.
+          if (phase.kind == PhaseKind.setRest)
+            'Next: Set ${phase.set + 1}/${exercise.sets}'
+          else if (phase.rep > 0) ...[
+            ?_runner.setLabel,
+            'Rep ${phase.rep}/${exercise.reps}',
+          ],
+          // As on screen: the phase's own exercise, or getting ready and
+          // during a timed transition, the one coming up.
+          _runner.displayExercise.name,
+        ].join(' · ');
+    }
+    return BackgroundStatus(
+      title: widget.session.name,
+      text: text,
+      action: _actionLabel(),
+      endsAt: _countdownEnd(),
+    );
+  }
+
+  /// The notification button's label, mirroring the main button on screen;
+  /// none while the "Stop session?" dialog is up.
+  String? _actionLabel() => _confirmingStop
+      ? null
+      : switch (_runner.status) {
+          RunnerStatus.running => 'Pause',
+          RunnerStatus.paused => 'Resume',
+          RunnerStatus.waitingForTap => 'Continue',
+          RunnerStatus.finished => null,
+        };
+
+  /// When the current phase ends by the wall clock, not the runner's: the
+  /// system draws the countdown from it. Null unless counting down.
+  DateTime? _countdownEnd() => _runner.status == RunnerStatus.running
+      ? (widget.now ?? DateTime.now)().add(_runner.remaining)
+      : null;
+
+  /// The notification's button does what the main button on screen does,
+  /// if it still says so: a tap can race an update (the phase ended, or the
+  /// session was paused on screen), and "Pause" must never resume or skip.
+  /// [label] is the tapped button's label; null if unknown.
+  void _onNotificationAction(String? label) {
+    if (!mounted) return;
+    // Also covers the "Stop session?" dialog being up (no button then): don't
+    // resume or skip behind it.
+    final current = _actionLabel();
+    // The update with the right label is already on its way.
+    if (current == null || (label != null && label != current)) return;
+    if (_runner.status == RunnerStatus.waitingForTap) {
+      _runner.skipPhase();
+    } else {
+      _runner.togglePause();
+    }
   }
 
   void _onRunnerChanged() {
     if (_runner.status == RunnerStatus.finished) {
-      _record();
-      Navigator.pushReplacement(
-        context,
+      _stopBackground(after: _record());
+      // Anything over this screen goes first - the "Stop session?" dialog,
+      // if the session ended behind it (e.g. the app was swiped away) - so
+      // the summary replaces this screen, not the dialog.
+      final navigator = Navigator.of(context);
+      final route = ModalRoute.of(context);
+      if (route != null) navigator.popUntil((r) => r == route);
+      navigator.pushReplacement(
         MaterialPageRoute(
           builder: (_) => SummaryScreen(
             sessionName: widget.session.name,
@@ -108,6 +284,7 @@ class _RunningScreenState extends State<RunningScreen>
         ),
       );
     } else {
+      _syncBackground();
       setState(() {});
     }
   }
@@ -153,6 +330,10 @@ class _RunningScreenState extends State<RunningScreen>
       _confirmingStop = false;
       return;
     }
+    // Takes the button off the notification, also when pause() changed
+    // nothing (already paused, or waiting for a tap). A no-op if pause()
+    // already did it.
+    _syncBackground();
     final bool stop;
     try {
       stop = await showConfirmDialog(
@@ -164,12 +345,17 @@ class _RunningScreenState extends State<RunningScreen>
     } finally {
       _confirmingStop = false;
     }
-    if (!mounted) return;
+    // Ended meanwhile (the dialog was closed for the summary): nothing to
+    // stop or resume.
+    if (!mounted || _runner.status == RunnerStatus.finished) return;
     if (stop) {
       _runner.stop();
-    } else if (wasRunning) {
-      _runner.resume();
+      return;
     }
+    // Resuming updates the notification; otherwise nothing changes on the
+    // runner, but the button has to come back.
+    if (wasRunning) _runner.resume();
+    _syncBackground();
   }
 
   @override
@@ -185,6 +371,7 @@ class _RunningScreenState extends State<RunningScreen>
     final exerciseCount = widget.session.exercises.length;
     // During a transition, the exercise coming up (as on get ready).
     final shownIndex = runner.displayExerciseIndex;
+    final setLabel = runner.setLabel;
     final textTheme = Theme.of(context).textTheme;
     final colors = Theme.of(context).colorScheme;
     final showTempoLook = isTempo && inExercise;
@@ -227,7 +414,7 @@ class _RunningScreenState extends State<RunningScreen>
                         ?.copyWith(color: colors.onSurfaceVariant),
                   ),
                   Text(
-                    widget.session.exercises[shownIndex].name,
+                    runner.displayExercise.name,
                     style: textTheme.headlineSmall,
                     textAlign: TextAlign.center,
                     maxLines: 2,
@@ -235,9 +422,8 @@ class _RunningScreenState extends State<RunningScreen>
                   ),
                   SizedBox(
                     height: 24,
-                    child: inExercise && exercise.sets > 1
-                        ? Text('Set ${phase.set}/${exercise.sets}',
-                            style: textTheme.titleMedium)
+                    child: setLabel != null
+                        ? Text(setLabel, style: textTheme.titleMedium)
                         : null,
                   ),
                   const SizedBox(height: 8),
@@ -529,26 +715,20 @@ class _NextUp extends StatelessWidget {
     final current = runner.phase.kind;
     final textTheme = Theme.of(context).textTheme;
     final exercises = runner.session.exercises;
-    bool between(PhaseKind k) =>
-        k == PhaseKind.getReady ||
-        k == PhaseKind.transition ||
-        k == PhaseKind.waitForTap;
     final String text;
     Color? dot;
     if (next == null) {
       text = 'Next: done!';
-    } else if (between(current)) {
+    } else if (SessionRunner.isBetweenExercises(current)) {
       // Get ready / transition: what exercise is coming.
-      text = 'Next: ${exercises[next.exerciseIndex].name}';
+      text = 'Next: ${runner.displayExercise.name}';
       dot = PhaseColors.of(next.kind);
-    } else if (between(next.kind) ||
+    } else if (SessionRunner.isBetweenExercises(next.kind) ||
         next.exerciseIndex != runner.phase.exerciseIndex) {
       // Last phase of this exercise: name the next exercise, past any
       // transition.
-      final first = runner.plan
-          .skip(runner.index + 1)
-          .firstWhere((p) => !between(p.kind), orElse: () => next);
-      text = 'Next: ${exercises[first.exerciseIndex].name}';
+      final upcoming = runner.upcomingExerciseIndex ?? next.exerciseIndex;
+      text = 'Next: ${exercises[upcoming].name}';
       dot = PhaseColors.of(next.kind);
     } else if (next.waitsForTap) {
       text = 'Next: ${next.label} (tap)';

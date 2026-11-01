@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import 'services/background_session.dart';
 import 'services/cues.dart';
 import 'services/history_store.dart';
 import 'services/session_store.dart';
@@ -15,6 +16,7 @@ class AppScope extends InheritedWidget {
     required this.settings,
     required this.updates,
     required this.cues,
+    this.backgroundSession = PlatformBackgroundSession.new,
     required super.child,
   });
 
@@ -25,6 +27,11 @@ class AppScope extends InheritedWidget {
 
   /// Cue sounds/vibration, loaded once for the whole app.
   final CueOutput cues;
+
+  /// Makes the background session for each run: the Android foreground
+  /// service by default (a no-op elsewhere). Replaceable in tests, where the
+  /// platform channel isn't there.
+  final BackgroundSession Function() backgroundSession;
 
   static AppScope of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
@@ -45,5 +52,6 @@ class AppScope extends InheritedWidget {
       history != oldWidget.history ||
       settings != oldWidget.settings ||
       updates != oldWidget.updates ||
-      cues != oldWidget.cues;
+      cues != oldWidget.cues ||
+      backgroundSession != oldWidget.backgroundSession;
 }

@@ -7,6 +7,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../engine/session_plan.dart';
 import '../engine/session_runner.dart';
+import 'platform.dart';
 import 'settings_store.dart';
 import 'web_vibration.dart';
 
@@ -91,7 +92,7 @@ class DeviceCueOutput implements CueOutput {
       // No playerId: each player gets a unique one.
       final player = AudioPlayer();
       // Android SoundPool: lowest latency for short clips.
-      if (defaultTargetPlatform == TargetPlatform.android && !kIsWeb) {
+      if (isAndroidApp) {
         await player.setPlayerMode(PlayerMode.lowLatency);
       }
       await player.setReleaseMode(ReleaseMode.stop);

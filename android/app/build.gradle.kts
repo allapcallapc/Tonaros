@@ -65,3 +65,10 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // SessionService uses ServiceCompat.startForeground with a service type
+    // and NotificationCompat.setForegroundServiceBehavior (1.12+). Declared
+    // so it doesn't depend on what the plugins happen to pull in.
+    implementation("androidx.core:core:1.13.1")
+}
