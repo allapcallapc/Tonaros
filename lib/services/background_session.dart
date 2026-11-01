@@ -150,27 +150,33 @@ class PlatformBackgroundSession implements BackgroundSession {
   Future<void> _start() {
     final pending = _starting;
     if (pending != null) return pending;
-    late final Future<void> starting;
-    starting = _startOnce().whenComplete(() {
-      if (identical(_starting, starting)) _starting = null;
-    });
-    return _starting = starting;
+    final first = _desired;
+    if (first == null) return Future.value();
+    // _startOnce always awaits before it ends, so it can't clear
+    // [_starting] before this sets it.
+    return _starting = _startOnce(first);
   }
 
-  Future<void> _startOnce() async {
-    var sent = _desired;
-    if (sent == null) return;
-    final started = await _call('start', sent);
-    // Stopped or superseded meanwhile: nothing left to do.
-    if (_owner != this) return;
-    _started = started;
-    // Updated while starting (only recorded then): catch up, until nothing
-    // newer came in meanwhile.
-    while (_started && _owner == this) {
-      final desired = _desired;
-      if (desired == null || desired == sent) break;
-      sent = desired;
-      await _call('update', desired);
+  Future<void> _startOnce(BackgroundStatus first) async {
+    var sent = first;
+    try {
+      final started = await _call('start', sent);
+      // Stopped or superseded meanwhile: nothing left to do.
+      if (_owner != this) return;
+      _started = started;
+      // Updated while starting (only recorded then): catch up, until
+      // nothing newer came in meanwhile.
+      while (_started && _owner == this) {
+        final desired = _desired;
+        if (desired == null || desired == sent) break;
+        sent = desired;
+        await _call('update', desired);
+      }
+    } finally {
+      // Cleared here, in the same step as the loop's last check rather than
+      // in a callback after it: an update in between would see a start
+      // still in flight, only record its status, and never be sent.
+      _starting = null;
     }
   }
 
