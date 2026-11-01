@@ -65,6 +65,7 @@ class MainActivity : FlutterActivity() {
         // and lib/services/background_session.dart.
         val sessionChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, sessionChannelName)
         // The notification's Pause/Resume/Continue button.
+        callbacksEngine = flutterEngine
         SessionService.onAction = { label -> sessionChannel.invokeMethod("action", label) }
         // Swiped away from recents: end the Dart session with the service.
         // Dart saves the run, then calls "stop", which lets the engine go if
@@ -80,7 +81,7 @@ class MainActivity : FlutterActivity() {
             if (attachedHosts == 0) {
                 // Its activity is already gone: nothing can show or end the
                 // session, so don't leave it running headless.
-                clearSessionCallbacks()
+                clearSessionCallbacks(flutterEngine)
                 flutterEngine.destroy()
             } else {
                 sessionChannel.invokeMethod("startFailed", null)
@@ -127,7 +128,7 @@ class MainActivity : FlutterActivity() {
                     // vibration plugins as the session ended, must get to
                     // play before they go with the engine.
                     if (attachedHosts == 0) {
-                        clearSessionCallbacks()
+                        clearSessionCallbacks(flutterEngine)
                         Handler(Looper.getMainLooper()).postDelayed(
                             { flutterEngine.destroy() },
                             SessionService.WAKE_LOCK_GRACE_MS,
@@ -196,7 +197,7 @@ class MainActivity : FlutterActivity() {
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         attachedHosts--
         // The engine is about to be destroyed with this activity.
-        if (shouldDestroyEngineWithHost()) clearSessionCallbacks()
+        if (shouldDestroyEngineWithHost()) clearSessionCallbacks(flutterEngine)
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
@@ -230,7 +231,17 @@ class MainActivity : FlutterActivity() {
          */
         var attachedHosts = 0
 
-        fun clearSessionCallbacks() {
+        /**
+         * The engine the [SessionService] callbacks were last set for. An
+         * older activity's engine may be cleaned up after a newer one has
+         * set its own, which must stay.
+         */
+        var callbacksEngine: FlutterEngine? = null
+
+        /** Clears the callbacks, if they are still [engine]'s. */
+        fun clearSessionCallbacks(engine: FlutterEngine) {
+            if (callbacksEngine !== engine) return
+            callbacksEngine = null
             SessionService.onAction = null
             SessionService.onDismissed = null
             SessionService.onStartFailed = null

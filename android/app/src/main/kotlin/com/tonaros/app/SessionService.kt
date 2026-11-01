@@ -67,6 +67,12 @@ class SessionService : Service() {
             holdWakeLock(this, Hold.GRACE)
             // One an update may already have posted without the service.
             notificationManager(this).cancel(NOTIFICATION_ID)
+            // Unlike the stop-before-startForeground case below, startForeground
+            // was called. Whether the system still holds the app to it after
+            // refusing is up to the system; if it does, it kills the app on its
+            // timeout whether the service is stopped or not, so stopping it
+            // risks nothing more, and otherwise a refused service isn't left
+            // lingering.
             stopSelf()
             // Not for a session that was stopped meanwhile.
             if (wasRunning) onStartFailed?.invoke()

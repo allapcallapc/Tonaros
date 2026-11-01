@@ -144,6 +144,40 @@ void main() {
     await session.stop();
   });
 
+  test('a retry sends the status from updates made while it was pending',
+      () async {
+    final session = PlatformBackgroundSession(isInForeground: () => false);
+    final sentTexts = <String?>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      sentTexts.add((call.arguments as Map?)?['text'] as String?);
+      if (call.method == 'start' && startsToRefuse > 0) {
+        startsToRefuse--;
+        throw PlatformException(code: 'START_FAILED');
+      }
+      return null;
+    });
+    startsToRefuse = 1;
+    await session.start(status, onAction: (_) {}, onDismissed: () {});
+
+    // Back in the foreground: retried, and paused before it returned.
+    final retry = session.ensureStarted(status);
+    await session.update(const BackgroundStatus(title: 'S', text: 'Paused'));
+    await retry;
+    expect(calls, ['start', 'start', 'update']);
+    expect(sentTexts.last, 'Paused');
+
+    // Recorded while refused: the retry starts with the latest.
+    await fromNative('startFailed');
+    await session.update(const BackgroundStatus(title: 'S', text: 'Hold'));
+    await session.ensureStarted(
+        const BackgroundStatus(title: 'S', text: 'Hold'));
+    expect(calls.last, 'start');
+    expect(sentTexts.last, 'Hold');
+    await session.stop();
+  });
+
   test('a start refused after stop leaves nothing to retry', () async {
     final session = PlatformBackgroundSession();
     startsToRefuse = 1;

@@ -378,6 +378,11 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     expect(background.running, isFalse);
+    // Until the run is saved and the service stops: no countdown or button
+    // left from the last phase.
+    expect(background.shown.last, 'Session stopped');
+    expect(background.last!.action, isNull);
+    expect(background.last!.endsAt, isNull);
   });
 
   testWidgets('a timed transition names the exercise coming up',

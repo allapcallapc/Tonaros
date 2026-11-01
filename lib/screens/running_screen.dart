@@ -133,11 +133,20 @@ class _RunningScreenState extends State<RunningScreen>
     if (after == null) {
       _background.stop();
     } else {
-      // Bounded: a write that never completes must not leave the service
-      // and its notification up for good.
-      after.timeout(_maxStopDelay, onTimeout: () {}).whenComplete(
-        _background.stop,
+      // Up until the stop: no countdown or button left from the last phase
+      // (a tap on it would do nothing now).
+      _shown = BackgroundStatus(
+        title: widget.session.name,
+        text: _runner.completed ? 'Session complete' : 'Session stopped',
       );
+      _background.update(_shown);
+      // Bounded: a write that never completes must not leave the service
+      // and its notification up for good. Stopped even if it fails.
+      after
+          .timeout(_maxStopDelay, onTimeout: () {})
+          .catchError((Object e) {
+        debugPrint('RunningScreen: saving the run failed: $e');
+      }).whenComplete(_background.stop);
     }
   }
 

@@ -97,27 +97,29 @@ class PlatformBackgroundSession implements BackgroundSession {
   /// started) must leave them alone.
   static PlatformBackgroundSession? _owner;
 
-  /// Whether the last native start was refused, so the service isn't
-  /// running and updates would be ignored. Not retried by updates: a
-  /// refusal usually means the app was in the background, where Android 12+
-  /// refuses every start, so retrying on each would only fail. Retried by
-  /// [ensureStarted] on resume, or at once if the refusal is reported while
-  /// the app is already in the foreground (see [_onStartFailed]).
-  bool _startFailed = false;
+  /// What the notification should show: the last status passed in, also
+  /// while the service isn't running. Every native start or update sends
+  /// this, so nothing is ever posted out of date.
+  BackgroundStatus? _desired;
 
-  /// The native start in flight, if any: a second start while one is
-  /// pending would only queue a second startForegroundService.
+  /// Whether the native side has accepted a start that hasn't been refused
+  /// since, so updates can go straight to it. While not, updates are only
+  /// recorded in [_desired]: a refusal usually means the app was in the
+  /// background, where Android 12+ refuses every start, so retrying on each
+  /// update would only fail. A start is retried by [ensureStarted] on
+  /// resume, or at once if the refusal is reported while the app is already
+  /// in the foreground (see [_onStartFailed]).
+  bool _started = false;
+
+  /// The native start in flight, if any: every start joins it rather than
+  /// queue a second startForegroundService.
   Future<void>? _starting;
 
-  /// Whether a refusal reported while in the foreground was already retried
-  /// since the last [ensureStarted] (i.e. resume): a refusal that isn't about
-  /// the background (e.g. the service type is rejected) would otherwise be
-  /// retried in a loop.
+  /// Whether a refusal reported in the foreground was already retried since
+  /// the last [ensureStarted] (i.e. resume): one that isn't about the
+  /// background (e.g. a rejected service type) would otherwise be retried
+  /// in a loop.
   bool _retriedInForeground = false;
-
-  /// What the notification should show: the last start or update, also while
-  /// not started, for a retry.
-  BackgroundStatus? _latest;
 
   @override
   Future<void> start(
@@ -126,6 +128,7 @@ class PlatformBackgroundSession implements BackgroundSession {
     required VoidCallback onDismissed,
   }) {
     _owner = this;
+    _desired = status;
     if (isSupported) {
       _channel.setMethodCallHandler((call) async {
         switch (call.method) {
@@ -140,71 +143,78 @@ class PlatformBackgroundSession implements BackgroundSession {
         }
       });
     }
-    return _start(status);
+    return _start();
   }
 
-  /// Starts the native side, or joins the start already in flight.
-  Future<void> _start(BackgroundStatus status) {
-    _latest = status;
-    return _starting ??= () async {
-      try {
-        final started = await _call('start', status);
-        // Stopped or superseded meanwhile: nothing left to retry.
-        if (_owner != this) return;
-        _startFailed = !started;
-      } finally {
-        _starting = null;
-      }
-    }();
+  /// Starts the native side with [_desired], or joins the start in flight.
+  Future<void> _start() {
+    final pending = _starting;
+    if (pending != null) return pending;
+    late final Future<void> starting;
+    starting = _startOnce().whenComplete(() {
+      if (identical(_starting, starting)) _starting = null;
+    });
+    return _starting = starting;
   }
 
-  /// The service was refused after 'start' had succeeded (e.g. the app went
-  /// to the background before it got going). Retried at once if the app is
-  /// in the foreground again, since nothing else would until the next
-  /// resume; otherwise by [ensureStarted] on that resume.
+  Future<void> _startOnce() async {
+    var sent = _desired;
+    if (sent == null) return;
+    final started = await _call('start', sent);
+    // Stopped or superseded meanwhile: nothing left to do.
+    if (_owner != this) return;
+    _started = started;
+    // Updated while starting (only recorded then): catch up, until nothing
+    // newer came in meanwhile.
+    while (_started && _owner == this) {
+      final desired = _desired;
+      if (desired == null || desired == sent) break;
+      sent = desired;
+      await _call('update', desired);
+    }
+  }
+
+  /// The service was refused after 'start' had succeeded. Retried at once
+  /// if the app is in the foreground, since nothing else would until the
+  /// next resume; otherwise by [ensureStarted] on that resume.
   void _onStartFailed() {
     if (_owner != this) return;
-    _startFailed = true;
-    final latest = _latest;
-    if (latest != null && !_retriedInForeground && _isInForeground()) {
+    _started = false;
+    if (!_retriedInForeground && _isInForeground()) {
       _retriedInForeground = true;
       // Not awaited: this only reports the refusal to native.
-      _start(latest);
+      _start();
     }
   }
 
   @override
   Future<void> update(BackgroundStatus status) async {
     if (_owner != this) return;
-    _latest = status;
-    // Not started: retried by ensureStarted once back in the foreground.
-    if (_startFailed) return;
+    _desired = status;
+    // Not started (or still starting): sent by the next start.
+    if (!_started || _starting != null) return;
     await _call('update', status);
   }
 
   @override
   Future<void> ensureStarted(BackgroundStatus status) async {
     if (_owner != this) return;
+    _desired = status;
     _retriedInForeground = false;
-    // A start in flight: it decides whether a retry is needed.
-    final starting = _starting;
-    if (starting != null) {
-      await starting;
-      // Refused all the same: once more, now from the foreground.
-      if (_owner != this || !_startFailed) return;
-    } else if (!_startFailed) {
-      return;
-    }
-    return _start(status);
+    // A start in flight: wait for it, then retry if it was refused.
+    final pending = _starting;
+    if (pending != null) await pending;
+    if (_owner != this || _started) return;
+    return _start();
   }
 
   @override
   Future<void> stop() async {
     if (_owner != this) return;
     _owner = null;
-    _startFailed = false;
+    _desired = null;
+    _started = false;
     _retriedInForeground = false;
-    _latest = null;
     if (isSupported) _channel.setMethodCallHandler(null);
     await _call('stop');
   }
